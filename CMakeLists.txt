@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # プラグイン定義
 juce_add_plugin(WetStringReverb
-    COMPANY_NAME "WetString Audio"
+    COMPANY_NAME "K5SANO"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
