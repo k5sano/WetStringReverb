@@ -61,6 +61,7 @@ void WetStringReverbProcessor::prepareToPlay (double sampleRate, int samplesPerB
     dvnTail[1].prepare (sampleRate, samplesPerBlock, 0x5678EF01u);
 
     // 内部バッファの確保
+    dryBuffer.setSize (2, samplesPerBlock);
     earlyBuffer.setSize (2, samplesPerBlock);
     fdnInputBuffer.setSize (2, samplesPerBlock);
     dvnBuffer.setSize (2, samplesPerBlock);
@@ -144,9 +145,9 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // パラメータ更新
     updateParameters();
 
-    // Dry 信号のコピー
-    juce::AudioBuffer<float> dryBuffer;
-    dryBuffer.makeCopyOf (buffer);
+    // Dry 信号のコピー（事前確保バッファを使用）
+    for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+        dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
     // Pre-Delay
     float preDelayMs = preDelayParam->load();
@@ -164,7 +165,6 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // Early Reflections
-    earlyBuffer.setSize (2, numSamples, false, false, true);
     float earlyGain = std::pow (10.0f, earlyLevelParam->load() / 20.0f);
     for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
     {
@@ -174,7 +174,6 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // FDN へのオーバーサンプリング処理
-    fdnInputBuffer.setSize (2, numSamples, false, false, true);
     for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
         fdnInputBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
@@ -198,7 +197,6 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     oversamplingManager.processSamplesDown (fdnBlock);
 
     // DVN テール
-    dvnBuffer.setSize (2, numSamples, false, false, true);
     float lateGain = std::pow (10.0f, lateLevelParam->load() / 20.0f);
     for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
     {

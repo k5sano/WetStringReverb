@@ -77,6 +77,7 @@ private:
     static constexpr int MAX_PRE_DELAY_SAMPLES = 4800;  // 100ms @48kHz
 
     // 内部バッファ（processBlock 内で再アロケーションしない）
+    juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> earlyBuffer;
     juce::AudioBuffer<float> fdnInputBuffer;
     juce::AudioBuffer<float> dvnBuffer;
