@@ -1,5 +1,6 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include "../Source/PluginProcessor.h"
 #include "../Source/DSP/OversamplingManager.h"
 
@@ -64,8 +65,8 @@ public:
         }
 
         // 9 パターン（SR × OS）全組合せ
-        double sampleRates[] = { 44100.0, 48000.0, 96000.0 };
-        int osFactors[] = { 0, 1, 2 };
+        const std::array<double, 3> sampleRates = { 44100.0, 48000.0, 96000.0 };
+        const std::array<int, 3> osFactors = { 0, 1, 2 };
 
         for (auto sr : sampleRates)
         {

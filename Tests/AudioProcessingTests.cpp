@@ -2,6 +2,7 @@
 #include "../Source/PluginProcessor.h"
 #include "../Source/Parameters.h"
 #include <cmath>
+#include <array>
 
 //==============================================================================
 class AudioProcessingTests : public juce::UnitTest
@@ -46,7 +47,7 @@ public:
         }
 
         // サンプルレートテスト
-        double sampleRates[] = { 44100.0, 48000.0, 96000.0 };
+        const std::array<double, 3> sampleRates = { 44100.0, 48000.0, 96000.0 };
         for (auto sr : sampleRates)
         {
             juce::String testName = "Processes without crash at SR="
@@ -58,7 +59,7 @@ public:
         }
 
         // バッファサイズテスト
-        int bufferSizes[] = { 64, 128, 256, 512, 1024 };
+        const std::array<int, 5> bufferSizes = { 64, 128, 256, 512, 1024 };
         for (auto bs : bufferSizes)
         {
             juce::String testName = "Processes without crash at bufferSize="
