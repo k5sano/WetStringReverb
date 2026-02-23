@@ -12,7 +12,7 @@ public:
 
     void runTest() override
     {
-        WetStringReverbProcessor processor;
+        VelvetUnderDronProcessor processor;
         auto& apvts = processor.apvts;
 
         beginTest ("All 19 parameters exist in APVTS");
@@ -141,14 +141,14 @@ public:
     {
         beginTest ("Plugin name is correct");
         {
-            WetStringReverbProcessor processor;
-            expect (processor.getName() == "WetStringReverb",
-                    "Plugin name should be WetStringReverb");
+            VelvetUnderDronProcessor processor;
+            expect (processor.getName() == "VelvetUnderDron",
+                    "Plugin name should be VelvetUnderDron");
         }
 
         beginTest ("Plugin is stereo in/out");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             expect (processor.getTotalNumInputChannels() >= 2,
                     "Should accept stereo input");
             expect (processor.getTotalNumOutputChannels() >= 2,
@@ -157,14 +157,14 @@ public:
 
         beginTest ("Plugin does not accept MIDI");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             expect (!processor.acceptsMidi(), "Should not accept MIDI");
             expect (!processor.producesMidi(), "Should not produce MIDI");
         }
 
         beginTest ("State save/restore works");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             // パラメータを変更
@@ -177,7 +177,7 @@ public:
             processor.getStateInformation (state);
 
             // 別のインスタンスに復元
-            WetStringReverbProcessor processor2;
+            VelvetUnderDronProcessor processor2;
             processor2.setStateInformation (state.getData(),
                                              static_cast<int> (state.getSize()));
 

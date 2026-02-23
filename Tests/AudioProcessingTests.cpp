@@ -14,7 +14,7 @@ public:
     {
         beginTest ("Silent input produces silent output when dry_wet=0%");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             // dry_wet=0% に設定
@@ -72,7 +72,7 @@ public:
 
         beginTest ("Output is not all zeros with wet signal");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             // dry_wet=100%
@@ -109,7 +109,7 @@ public:
 
         beginTest ("No NaN or Inf in output");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             juce::AudioBuffer<float> buffer (2, 512);
@@ -147,7 +147,7 @@ public:
 
         beginTest ("Extreme parameter values do not crash");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             // 全パラメータを最大値に設定
@@ -198,7 +198,7 @@ public:
 
         beginTest ("Mono input is handled correctly");
         {
-            WetStringReverbProcessor processor;
+            VelvetUnderDronProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             // 1ch バッファでも動作するか確認
@@ -228,7 +228,7 @@ public:
 private:
     void processAtSampleRate (double sr, int blockSize)
     {
-        WetStringReverbProcessor processor;
+        VelvetUnderDronProcessor processor;
         processor.prepareToPlay (sr, blockSize);
 
         juce::AudioBuffer<float> buffer (2, blockSize);

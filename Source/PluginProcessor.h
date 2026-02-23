@@ -9,11 +9,11 @@
 #include "DSP/OversamplingManager.h"
 #include "DSP/ReverbMixer.h"
 
-class WetStringReverbProcessor : public juce::AudioProcessor
+class VelvetUnderDronProcessor : public juce::AudioProcessor
 {
 public:
-    WetStringReverbProcessor();
-    ~WetStringReverbProcessor() override = default;
+    VelvetUnderDronProcessor();
+    ~VelvetUnderDronProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -23,7 +23,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "WetStringReverb"; }
+    const juce::String getName() const override { return "VelvetUnderDron"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -98,5 +98,5 @@ private:
     void updateParameters();
     void initializeOversampling (int factor);
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WetStringReverbProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VelvetUnderDronProcessor)
 };
