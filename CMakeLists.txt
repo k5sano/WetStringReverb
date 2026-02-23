@@ -2,54 +2,37 @@ cmake_minimum_required(VERSION 3.22)
 
 project(WetStringReverb VERSION 1.0.0)
 
-# JUCE を add_subdirectory で取り込む（JUCE サブモジュールを前提）
 add_subdirectory(JUCE)
 
-# C++17 必須
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# プラグイン定義
 juce_add_plugin(WetStringReverb
-    COMPANY_NAME "WetString Audio"
+    COMPANY_NAME "K5SANO"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
-    PLUGIN_MANUFACTURER_CODE Wstr
+    PLUGIN_MANUFACTURER_CODE K5sn
     PLUGIN_CODE Wsrv
-    FORMATS AU VST3 Standalone
+    FORMATS VST3 Standalone
     PRODUCT_NAME "WetStringReverb"
 )
 
-# ソースファイル
 target_sources(WetStringReverb
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
-        Source/DSP/DelayLine.cpp
-        Source/DSP/FeedbackMatrix.cpp
-        Source/DSP/AttenuationFilter.cpp
-        Source/DSP/Saturation.cpp
-        Source/DSP/SaturationToneFilter.cpp
-        Source/DSP/Diffuser.cpp
-        Source/DSP/VelvetNoise.cpp
-        Source/DSP/EarlyReflections.cpp
-        Source/DSP/FDNReverb.cpp
-        Source/DSP/DarkVelvetNoise.cpp
-        Source/DSP/OversamplingManager.cpp
-        Source/DSP/ReverbMixer.cpp
+        Source/DSP/CloudsReverb.cpp
 )
 
-# インクルードパス
 target_include_directories(WetStringReverb
     PRIVATE
         Source
 )
 
-# プリプロセッサ定義
 target_compile_definitions(WetStringReverb
     PUBLIC
         JUCE_WEB_BROWSER=0
@@ -62,7 +45,6 @@ if(MSVC)
     target_compile_options(WetStringReverb PRIVATE /utf-8)
 endif()
 
-# リンク
 target_link_libraries(WetStringReverb
     PRIVATE
         juce::juce_audio_utils
@@ -73,7 +55,6 @@ target_link_libraries(WetStringReverb
         juce::juce_recommended_warning_flags
 )
 
-# テストビルド
 option(BUILD_TESTS "Build unit tests" ON)
 
 if(BUILD_TESTS)
@@ -86,24 +67,10 @@ if(BUILD_TESTS)
     target_sources(WetStringReverbTests
         PRIVATE
             Tests/PluginTests.cpp
-            Tests/FDNTests.cpp
-            Tests/OversamplingTests.cpp
-            Tests/SaturationTests.cpp
             Tests/AudioProcessingTests.cpp
             Source/PluginProcessor.cpp
             Source/PluginEditor.cpp
-            Source/DSP/DelayLine.cpp
-            Source/DSP/FeedbackMatrix.cpp
-            Source/DSP/AttenuationFilter.cpp
-            Source/DSP/Saturation.cpp
-            Source/DSP/SaturationToneFilter.cpp
-            Source/DSP/Diffuser.cpp
-            Source/DSP/VelvetNoise.cpp
-            Source/DSP/EarlyReflections.cpp
-            Source/DSP/FDNReverb.cpp
-            Source/DSP/DarkVelvetNoise.cpp
-            Source/DSP/OversamplingManager.cpp
-            Source/DSP/ReverbMixer.cpp
+            Source/DSP/CloudsReverb.cpp
     )
 
     target_include_directories(WetStringReverbTests
