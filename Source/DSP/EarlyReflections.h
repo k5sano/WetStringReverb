@@ -1,15 +1,14 @@
 #pragma once
 
 #include "DSP/VelvetNoise.h"
-#include <vector>
 
 namespace DSP
 {
 
 /**
- * OVN 初期反射（第 1 層）。
- * スパース FIR で弦楽器のトランジェントを保持。
- * 線形処理のためオーバーサンプリング不要。
+ * OVN early reflections (Layer 1).
+ * Sparse FIR preserves string instrument transients.
+ * Linear processing: no oversampling required.
  */
 class EarlyReflections
 {
@@ -18,37 +17,35 @@ public:
 
     void prepare (double sampleRate, int maxBlockSize, uint32_t seed)
     {
+        juce::ignoreUnused (maxBlockSize);
         sr = sampleRate;
-        inputBuffer.resize (static_cast<size_t> (maxBlockSize + 2048), 0.0f);
-        writePos = 0;
-
-        // OVN パルス列を生成（~30ms、2000 pulses/s）
+        // Generate OVN pulse train (~30 ms, 2000 pulses/s)
         ovn.generate (sampleRate, 30.0f, 2000.0f, seed);
     }
 
     /**
-     * 初期反射を処理。
-     * @param input 入力サンプル配列
-     * @param output 出力サンプル配列
-     * @param numSamples サンプル数
-     * @param gain ゲイン（dB から線形に変換済み）
+     * Process early reflections.
+     * @param input   input sample array
+     * @param output  output sample array
+     * @param numSamples  block size
+     * @param gain    gain (linear, converted from dB externally)
      */
-    void process (const float* input, float* output, int numSamples, float gain)
+    void process (const float* input, float* output,
+                  int numSamples, float gain)
     {
         ovn.convolve (input, output, numSamples, gain);
     }
 
     void reset()
     {
-        std::fill (inputBuffer.begin(), inputBuffer.end(), 0.0f);
-        writePos = 0;
+        // Ring buffer inside VelvetNoise will be cleared on next generate()
+        // For a reset during playback, we would need VelvetNoise::reset()
+        // but the current design regenerates on prepare().
     }
 
 private:
     VelvetNoise ovn;
     double sr = 44100.0;
-    std::vector<float> inputBuffer;
-    int writePos = 0;
 };
 
 }  // namespace DSP

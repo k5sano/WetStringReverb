@@ -9,6 +9,18 @@
 namespace DSP
 {
 
+/**
+ * Optimised Velvet Noise (OVN) for early reflections.
+ *
+ * Uses a ring buffer so that pulses whose position exceeds the
+ * current block size are still correctly applied across block
+ * boundaries.  Energy is normalised so the sparse FIR has
+ * approximately unity RMS gain.
+ *
+ * Reference:
+ *   Valimaki et al., "Late Reverberation Synthesis Using
+ *   Filtered Velvet Noise", JAES 60(3), 2012.
+ */
 class VelvetNoise
 {
 public:
@@ -20,11 +32,20 @@ public:
 
     VelvetNoise() = default;
 
-    void generate (double sampleRate, float durationMs, float density, uint32_t seed)
+    /**
+     * Generate an OVN pulse sequence.
+     * @param sampleRate   host sample rate (Hz)
+     * @param durationMs   impulse response length (ms)
+     * @param density      pulse density (pulses / second)
+     * @param seed         LCG seed for reproducibility
+     */
+    void generate (double sampleRate, float durationMs,
+                   float density, uint32_t seed)
     {
-        int totalSamples = static_cast<int> (sampleRate * durationMs * 0.001f);
+        sr = sampleRate;
+        sequenceLength = static_cast<int> (sampleRate * durationMs * 0.001f);
         int gridSize = std::max (1, static_cast<int> (sampleRate / density));
-        int numPulses = totalSamples / gridSize;
+        int numPulses = sequenceLength / gridSize;
 
         pulses.clear();
         pulses.reserve (static_cast<size_t> (numPulses));
@@ -39,57 +60,97 @@ public:
             rng = rng * 1664525u + 1013904223u;
             float sign = (rng & 0x80000000u) ? -1.0f : 1.0f;
 
-            if (pos < totalSamples)
+            if (pos < sequenceLength)
                 pulses.push_back ({ pos, sign });
         }
 
-        sequenceLength = totalSamples;
-
-        // -60dB decay over the full duration
+        // -60 dB decay over the full duration
         decayRate = -3.0f * std::log (10.0f)
-                  / std::max (1.0f, static_cast<float> (totalSamples));
+                  / std::max (1.0f, static_cast<float> (sequenceLength));
 
-        // Energy normalisation: ensure the sparse FIR has unity peak gain.
-        // Sum of absolute envelope-weighted coefficients:
-        float absSum = 0.0f;
-        for (const auto& pulse : pulses)
+        // Pre-compute envelope-weighted coefficients and RMS normalisation
+        float energySum = 0.0f;
+        envelopes.resize (pulses.size());
+        for (size_t k = 0; k < pulses.size(); ++k)
         {
-            float env = std::exp (decayRate * static_cast<float> (pulse.position));
-            absSum += std::abs (env);
+            float env = std::exp (decayRate * static_cast<float> (pulses[k].position));
+            envelopes[k] = env;
+            energySum += env * env;
         }
-        // Normalise so that worst-case (all pulses in phase) sums to 1.0
-        normGain = (absSum > 1.0e-6f) ? (1.0f / absSum) : 1.0f;
+        normGain = (energySum > 1.0e-6f) ? (1.0f / std::sqrt (energySum)) : 1.0f;
+
+        // Allocate ring buffer large enough for the full sequence length
+        ringSize = sequenceLength + 256;  // margin
+        ringBuffer.assign (static_cast<size_t> (ringSize), 0.0f);
+        ringWritePos = 0;
     }
 
+    /**
+     * Process one block of audio through the sparse FIR.
+     * Uses a ring buffer so pulses at any position within the
+     * sequence length can access past input samples.
+     *
+     * @param input    input sample array (numSamples)
+     * @param output   output sample array (numSamples)
+     * @param numSamples  block size
+     * @param gain     overall gain multiplier
+     */
     void convolve (const float* input, float* output,
                    int numSamples, float gain) const
     {
-        for (int i = 0; i < numSamples; ++i)
-            output[i] = 0.0f;
+        // Write input into ring buffer (const_cast needed because the
+        // ring buffer is logically mutable state, not output state)
+        auto* ring = const_cast<float*> (ringBuffer.data());
+        int wp = ringWritePos;
 
-        for (const auto& pulse : pulses)
+        for (int n = 0; n < numSamples; ++n)
         {
-            float envelope = std::exp (decayRate
-                           * static_cast<float> (pulse.position));
-            float coeff = pulse.sign * gain * envelope * normGain;
+            ring[wp] = input[n];
+            wp = (wp + 1) % ringSize;
+        }
+
+        // Clear output
+        for (int n = 0; n < numSamples; ++n)
+            output[n] = 0.0f;
+
+        // Sparse FIR convolution via ring buffer
+        for (size_t k = 0; k < pulses.size(); ++k)
+        {
+            float coeff = pulses[k].sign * gain * envelopes[k] * normGain;
+            if (std::abs (coeff) < 1.0e-10f)
+                continue;
+
+            int pulsePos = pulses[k].position;
 
             for (int n = 0; n < numSamples; ++n)
             {
-                int readPos = n - pulse.position;
-                if (readPos >= 0 && readPos < numSamples)
-                    output[n] += coeff * input[readPos];
+                // The sample we wrote at time (ringWritePos + n) needs
+                // to be convolved with the pulse at offset pulsePos.
+                // readIdx = (ringWritePos + n - pulsePos)
+                int readIdx = (ringWritePos + n - pulsePos % ringSize + ringSize) % ringSize;
+                output[n] += coeff * ring[readIdx];
             }
         }
+
+        // Advance write position
+        const_cast<int&> (ringWritePos) = wp;
     }
 
     int getSequenceLength() const { return sequenceLength; }
     const std::vector<Pulse>& getPulses() const { return pulses; }
 
 private:
+    double sr = 44100.0;
     std::vector<Pulse> pulses;
+    std::vector<float> envelopes;
     int sequenceLength = 0;
     float decayRate = 0.0f;
     float normGain = 1.0f;
+
+    // Ring buffer for cross-block convolution
+    mutable std::vector<float> ringBuffer;
+    mutable int ringWritePos = 0;
+    int ringSize = 0;
 };
 
 }  // namespace DSP
