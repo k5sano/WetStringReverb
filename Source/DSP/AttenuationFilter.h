@@ -6,6 +6,16 @@
 namespace DSP
 {
 
+/**
+ * First-order shelving filter for frequency-dependent attenuation.
+ * Placed INSIDE the FDN feedback loop, BEFORE the feedback matrix
+ * (per Jot 1992 / Schlecht 2018).
+ *
+ * Design ensures:
+ *   H(z=1)  = gainLow   (DC gain)
+ *   H(z=-1) = gainHigh  (Nyquist gain)
+ *   |H(e^jw)| <= max(gainLow, gainHigh) for all w
+ */
 class AttenuationFilter
 {
 public:
@@ -14,7 +24,7 @@ public:
     void setCoefficients (float gainLow, float gainHigh,
                           float crossoverFreq, float sampleRate)
     {
-        // Hard clamp: loop gain must NEVER exceed 1
+        // Hard clamp: loop gain must never exceed 1
         gainLow  = std::clamp (gainLow,  0.0f, 0.9999f);
         gainHigh = std::clamp (gainHigh, 0.0f, 0.9999f);
 
@@ -32,16 +42,11 @@ public:
         float t  = std::tan (wc);
         float ap = (t - 1.0f) / (t + 1.0f);
 
-        //   H(z=1)  = gainLow   (DC)
-        //   H(z=-1) = gainHigh  (Nyquist)
+        // H(1)  = (b0+b1)/(1+a1) = gainLow
+        // H(-1) = (b0-b1)/(1-a1) = gainHigh
         b0 = 0.5f * (gainLow * (1.0f + ap) + gainHigh * (1.0f - ap));
         b1 = 0.5f * (gainLow * (1.0f + ap) - gainHigh * (1.0f - ap));
         a1Coeff = ap;
-
-        // Verify: |H(e^jw)| <= 1 for all w.
-        // Since gainLow <= 0.9999 and gainHigh <= 0.9999, and the filter
-        // interpolates monotonically between them,
-        // |H| <= max(gainLow, gainHigh) <= 0.9999.
     }
 
     float process (float input)

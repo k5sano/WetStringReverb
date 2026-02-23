@@ -30,7 +30,6 @@ WetStringReverbProcessor::WetStringReverbProcessor()
     modDepthParam     = apvts.getRawParameterValue (Parameters::MOD_DEPTH);
     modRateParam      = apvts.getRawParameterValue (Parameters::MOD_RATE_HZ);
 
-    // Debug bypass switches
     bypassEarlyParam      = apvts.getRawParameterValue (Parameters::BYPASS_EARLY);
     bypassFDNParam        = apvts.getRawParameterValue (Parameters::BYPASS_FDN);
     bypassDVNParam        = apvts.getRawParameterValue (Parameters::BYPASS_DVN);
@@ -102,7 +101,6 @@ void WetStringReverbProcessor::updateParameters()
     float satTone      = satToneParam->load();
     float satAsymmetry = satAsymmetryParam->load();
 
-    // Read bypass flags
     bool bSat   = bypassSaturationParam->load()  >= 0.5f;
     bool bTone  = bypassToneFilterParam->load()   >= 0.5f;
     bool bAtten = bypassAttenFilterParam->load()  >= 0.5f;
@@ -117,6 +115,7 @@ void WetStringReverbProcessor::updateParameters()
     dvnTail[0].setParameters (decayShape, lowRT60);
     dvnTail[1].setParameters (decayShape, lowRT60);
 
+    // Gain applied ONLY in ReverbMixer — not here
     float dryWet      = dryWetParam->load();
     float earlyLevel  = earlyLevelParam->load();
     float lateLevel   = lateLevelParam->load();
@@ -150,7 +149,6 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     updateParameters();
 
-    // Read layer bypass flags
     bool bypassEarly = bypassEarlyParam->load() >= 0.5f;
     bool bypassFDN   = bypassFDNParam->load()   >= 0.5f;
     bool bypassDVN   = bypassDVNParam->load()    >= 0.5f;
@@ -174,7 +172,7 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // Early Reflections
+    // Early Reflections (gain=1.0, actual gain in ReverbMixer)
     if (bypassEarly)
     {
         earlyBuffer.clear (0, 0, numSamples);
@@ -184,11 +182,9 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     else
     {
         for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
-        {
             earlyReflections[ch].process (buffer.getReadPointer (ch),
                                            earlyBuffer.getWritePointer (ch),
                                            numSamples, 1.0f);
-        }
     }
 
     // FDN
@@ -221,7 +217,7 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         oversamplingManager.processSamplesDown (fdnBlock);
     }
 
-    // DVN Tail
+    // DVN Tail (gain=1.0, actual gain in ReverbMixer)
     if (bypassDVN)
     {
         dvnBuffer.clear (0, 0, numSamples);
@@ -231,11 +227,9 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     else
     {
         for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
-        {
             dvnTail[ch].process (fdnInputBuffer.getReadPointer (ch),
                                   dvnBuffer.getWritePointer (ch),
                                   numSamples, 1.0f);
-        }
     }
 
     // Mixing

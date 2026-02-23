@@ -12,11 +12,35 @@
 namespace DSP
 {
 
+/**
+ * 8-channel Feedback Delay Network (Layer 2).
+ * Runs at oversampled rate.
+ *
+ * Signal flow per sample (Jot 1992 / Schlecht & Habets 2020):
+ *
+ *   x_i(n) = b_i * input  (input injection, scaled by 1/sqrt(N/2))
+ *
+ *   s_i(n) = delayLine_i.read()                       [1. delay output]
+ *   a_i(n) = attenuationFilter_i( s_i(n) )            [2. freq-dep decay]
+ *   f(n)   = feedbackMatrix( a(n) )                    [3. unitary mixing]
+ *   sat_i  = saturation_i( f_i(n) )                    [4. optional nonlinearity]
+ *   t_i    = toneFilter_i( sat_i )                     [5. optional tone]
+ *   delayLine_i.write( x_i(n) + t_i )                  [6. write back]
+ *
+ *   output = sum of c_i * a_i(n)                        [7. output tap, post-filter]
+ *
+ * References:
+ *   Jot & Chaigne, "Digital delay networks for designing artificial reverberators",
+ *       AES 90th Conv. (1991)
+ *   Schlecht & Habets, "Scattering in FDNs", IEEE/ACM TASLP (2020)
+ *   Dal Santo et al., "Optimizing Tiny Colorless FDNs", EURASIP JASM (2025)
+ */
 class FDNReverb
 {
 public:
     static constexpr int NUM_CHANNELS = 8;
 
+    // Prime-based delays (@44.1 kHz). Mutually coprime for max mode density.
     static constexpr std::array<int, NUM_CHANNELS> BASE_DELAYS = {
         443, 557, 661, 769, 883, 1013, 1151, 1277
     };
@@ -68,11 +92,13 @@ public:
             delayLines[i].setDelay (delayLength);
         }
 
-        // Crossover: exponential mapping
+        // Crossover frequency (exponential mapping)
+        // hfDamping 0%   -> 20 kHz (essentially no HF damping)
+        // hfDamping 100% -> 500 Hz  (heavy HF damping)
         float crossoverHz = 20000.0f * std::pow (500.0f / 20000.0f,
                                                   hfDamping * 0.01f);
 
-        // Frequency-dependent attenuation per delay line
+        // Per-channel attenuation filter (Jot design)
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
             float delaySec = currentDelays[i] / static_cast<float> (sr);
@@ -81,7 +107,7 @@ public:
             float gHigh = std::pow (10.0f, -3.0f * delaySec
                                             / std::max (highRT60, 0.05f));
 
-            // Safety clamp: loop gain must never exceed 1
+            // Clamp to prevent self-oscillation
             gLow  = std::min (gLow,  0.9999f);
             gHigh = std::min (gHigh, 0.9999f);
 
@@ -89,8 +115,8 @@ public:
                                                     static_cast<float> (sr));
         }
 
-        // Diffusion: controls feedback matrix vs identity
-        // Applied with energy normalization to guarantee unitary operation.
+        // Diffusion: controls how much the feedback matrix mixes channels.
+        // 0% = parallel comb filters (identity), 100% = full Householder.
         currentDiffusion = std::clamp (diffusion * 0.01f, 0.0f, 1.0f);
 
         // Saturation
@@ -110,28 +136,12 @@ public:
     void processSample (float inputL, float inputR,
                         float& outputL, float& outputR)
     {
-        // Read from delay lines
+        // --- 1. Read delay lines ---
         std::array<float, NUM_CHANNELS> delayOutputs;
         for (int i = 0; i < NUM_CHANNELS; ++i)
             delayOutputs[i] = delayLines[i].read();
 
-        // Output tap (pre-feedback)
-        outputL = 0.0f;
-        outputR = 0.0f;
-        for (int i = 0; i < NUM_CHANNELS; ++i)
-        {
-            if (i % 2 == 0)
-                outputL += delayOutputs[i];
-            else
-                outputR += delayOutputs[i];
-        }
-        float outputScale = 1.0f / static_cast<float> (NUM_CHANNELS / 2);
-        outputL *= outputScale;
-        outputR *= outputScale;
-
-        // --- Feedback path ---
-
-        // 1. Attenuation filter (frequency-dependent decay)
+        // --- 2. Attenuation filter (BEFORE matrix, per Jot) ---
         std::array<float, NUM_CHANNELS> attenuated;
         if (bypassAttenFilter)
         {
@@ -143,37 +153,47 @@ public:
                 attenuated[i] = attenuationFilters[i].process (delayOutputs[i]);
         }
 
-        // 2. Feedback matrix (unitary mixing)
-        //    Full Hadamard when diffusion=1, identity when diffusion=0.
-        //    Blended with energy normalization to preserve unitarity.
+        // --- 3. Output tap (post-attenuation, per Jot Fig.3.10) ---
+        //    c_i = 1/sqrt(N/2) for L (even) and R (odd)
+        constexpr float outputScale = 0.5f;  // 1/sqrt(4) = 0.5
+        outputL = 0.0f;
+        outputR = 0.0f;
+        for (int i = 0; i < NUM_CHANNELS; ++i)
+        {
+            if (i % 2 == 0)
+                outputL += attenuated[i];
+            else
+                outputR += attenuated[i];
+        }
+        outputL *= outputScale;
+        outputR *= outputScale;
+
+        // --- 4. Feedback matrix (unitary mixing) ---
         std::array<float, NUM_CHANNELS> feedback;
         if (currentDiffusion < 0.001f)
         {
-            // No mixing: parallel delays
+            // Identity: parallel comb filters
             feedback = attenuated;
         }
         else if (currentDiffusion > 0.999f)
         {
-            // Full Hadamard
+            // Full Householder
             feedbackMatrix.process (attenuated, feedback);
         }
         else
         {
-            // Blended: interpolate then normalise to preserve energy
+            // Blended + energy-normalised to keep unitary
             std::array<float, NUM_CHANNELS> fullMix;
             feedbackMatrix.process (attenuated, fullMix);
 
-            // Compute input energy
             float energyIn = 0.0f;
             for (int i = 0; i < NUM_CHANNELS; ++i)
                 energyIn += attenuated[i] * attenuated[i];
 
-            // Blend
             for (int i = 0; i < NUM_CHANNELS; ++i)
                 feedback[i] = (1.0f - currentDiffusion) * attenuated[i]
                              + currentDiffusion * fullMix[i];
 
-            // Compute output energy and normalise
             float energyOut = 0.0f;
             for (int i = 0; i < NUM_CHANNELS; ++i)
                 energyOut += feedback[i] * feedback[i];
@@ -186,7 +206,7 @@ public:
             }
         }
 
-        // 3. Saturation (or bypass)
+        // --- 5. Saturation (optional, inside feedback loop) ---
         std::array<float, NUM_CHANNELS> afterSat;
         if (bypassSaturation)
         {
@@ -198,7 +218,7 @@ public:
                 afterSat[i] = saturators[i].process (feedback[i]);
         }
 
-        // 4. Tone filter (or bypass)
+        // --- 6. Tone filter (optional) ---
         std::array<float, NUM_CHANNELS> processed;
         if (bypassToneFilter)
         {
@@ -210,13 +230,12 @@ public:
                 processed[i] = toneFilters[i].process (afterSat[i]);
         }
 
-        // 5. Modulation + delay line write
+        // --- 7. Modulation + write to delay lines ---
         float lfoInc = 2.0f * 3.14159265f * currentModRate
                      / static_cast<float> (sr);
 
-        // Input gain: scale input to prevent overdriving the FDN.
-        // 1/sqrt(N/2) for energy-matched injection into 8-channel FDN.
-        constexpr float inputScale = 1.0f / 2.0f;
+        // Input gain: b_i = 1/sqrt(N/2)  (energy-matched injection)
+        constexpr float inputScale = 0.5f;  // 1/sqrt(4) = 0.5
 
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
