@@ -23,21 +23,22 @@ namespace DSP
  *   Feedback loop: delay → atten → matrix → [sat → tone] → write
  *   Output tap: post-attenuation
  *
- * Tuning changes (v1.1):
- *   - Delay lengths extended to ~25–108ms @44.1kHz (Dattorro-scale)
- *     for warmer, less metallic late reverb.
- *   - LFO modulation depth increased (maxModSamples 4→16) to
- *     smear modal resonances more effectively.
+ * Tuning v2 (2025-02):
+ *   - Delay lengths extended (max ~108 ms @44.1 kHz) to match
+ *     plate reverb density and eliminate metallic coloration.
+ *   - LFO modulation depth increased (up to 16 samples) for
+ *     smoother, more liquid tail character.
  */
 class FDNReverb
 {
 public:
     static constexpr int NUM_CHANNELS = 8;
 
-    // Extended prime-based delays (@44.1 kHz). Mutually coprime.
-    // Range: ~25ms to ~108ms — similar to Dattorro plate topology.
+    // Extended prime-based delays (@44.1 kHz).
+    // Range: ~20 ms to ~108 ms — comparable to Dattorro plate topology.
+    // All mutually coprime for maximum mode density.
     static constexpr std::array<int, NUM_CHANNELS> BASE_DELAYS = {
-        1103, 1399, 1693, 2063, 2521, 3089, 3623, 4783
+        887, 1151, 1559, 1907, 2467, 3109, 3907, 4787
     };
 
     FDNReverb() = default;
@@ -46,8 +47,8 @@ public:
     {
         sr = sampleRate;
 
-        // Max delay must accommodate largest BASE_DELAY × roomSize(max=1.0) × sampleRate ratio + modulation headroom
-        int maxDelay = static_cast<int> (4783 * 2.0 * (sampleRate / 44100.0)) + 128;
+        // Max possible delay: largest base * max roomSize(1.0) * rate ratio + mod headroom
+        int maxDelay = static_cast<int> (4787 * 2.0 * (sampleRate / 44100.0)) + 128;
         for (int i = 0; i < NUM_CHANNELS; ++i)
             delayLines[i].prepare (maxDelay);
 
@@ -123,10 +124,10 @@ public:
         for (auto& tf : toneFilters)
             tf.setTone (satTone);
 
-        // Modulation — increased depth range for smoother smearing
+        // Modulation — increased depth range for liquid character
         currentModDepth = modDepth * 0.01f;
         currentModRate  = modRate;
-        maxModSamples   = 16.0f;   // was 4.0f — now 4× wider for mode-smearing
+        maxModSamples   = 16.0f;  // was 4.0 — now matches plate reverb range
     }
 
     void processSample (float inputL, float inputR,
@@ -134,7 +135,7 @@ public:
     {
         // --- 0. Input diffuser: spread input across 8 channels ---
         //    This creates immediate high echo density.
-        constexpr float inputScale = 0.5f;  // 1/sqrt(N/2)
+        constexpr float inputScale = 0.5f;
 
         std::array<float, NUM_CHANNELS> diffuserInput;
         for (int i = 0; i < NUM_CHANNELS; ++i)
@@ -284,12 +285,12 @@ private:
     std::array<AttenuationFilter, NUM_CHANNELS> attenuationFilters;
     std::array<Saturation, NUM_CHANNELS> saturators;
     std::array<SaturationToneFilter, NUM_CHANNELS> toneFilters;
-    Diffuser diffuser;  // Input diffuser
+    Diffuser diffuser;
 
     std::array<float, NUM_CHANNELS> currentDelays {};
     float currentModDepth  = 0.0f;
     float currentModRate   = 0.5f;
-    float maxModSamples    = 16.0f;    // increased from 4.0f
+    float maxModSamples    = 16.0f;
     float currentDiffusion = 0.8f;
     double lfoPhase = 0.0;
 

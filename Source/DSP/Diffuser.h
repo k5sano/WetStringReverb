@@ -20,9 +20,10 @@ namespace DSP
  * Cascading NUM_STEPS of these produces N^NUM_STEPS echoes
  * from a single input pulse, giving immediate high density.
  *
- * Tuning change (v1.1): delay ranges shortened from 20/40/80/160ms
- * to 5/10/20/40ms for a more natural pre-reverb onset that doesn't
- * smear transients excessively.
+ * Tuning v2 (2025-02):
+ *   - Step durations shortened to 5/10/20/40 ms (was 20/40/80/160 ms)
+ *     for a tighter pre-diffusion that blends naturally into the FDN
+ *     without adding excessive pre-echo smear.
  */
 class Diffuser
 {
@@ -36,10 +37,8 @@ public:
     {
         sr = sampleRate;
 
-        // Shortened delay ranges per step: 5ms, 10ms, 20ms, 40ms
-        // Total diffusion spread ≈ 75ms (was 300ms), giving a tighter
-        // pre-reverb cluster that preserves transient clarity while
-        // still achieving 8^4 = 4096 echoes for high density.
+        // Shortened delay ranges per step (doubling progression).
+        // 5 ms -> 40 ms total spread matches typical early reflection onset.
         const float stepDurationsMs[NUM_STEPS] = { 5.0f, 10.0f, 20.0f, 40.0f };
 
         uint32_t rng = 0xBAADF00Du;
@@ -70,7 +69,6 @@ public:
             }
 
             // Generate per-step shuffle order and polarity flips
-            // Simple: rotate channels by (step+1) and flip based on RNG
             for (int ch = 0; ch < NUM_CHANNELS; ++ch)
             {
                 steps[step].shuffleOrder[ch] = (ch + step + 1) % NUM_CHANNELS;
@@ -79,7 +77,7 @@ public:
             }
         }
 
-        // Build Hadamard matrix (same as FeedbackMatrix but without sign arrays)
+        // Build Hadamard matrix
         float h[NUM_CHANNELS][NUM_CHANNELS];
         h[0][0] = 1.0f;
         int size = 1;
