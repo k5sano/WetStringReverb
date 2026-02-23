@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <cmath>
 #include <algorithm>
@@ -34,22 +34,29 @@ public:
                   float dvnL, float dvnR,
                   float& outL, float& outR) const
     {
-        // ウェット信号 = Early + Late + DVN
+        // DVN は Late と合算して lateGain を一括適用
         float wetL = earlyGain * earlyL + lateGain * (lateL + dvnL);
         float wetR = earlyGain * earlyR + lateGain * (lateR + dvnR);
 
-        // ステレオ幅制御（Mid/Side）
-        float mid = (wetL + wetR) * 0.5f;
+        // ステレオ幅 (Mid/Side)
+        float mid  = (wetL + wetR) * 0.5f;
         float side = (wetL - wetR) * 0.5f;
         wetL = mid + side * stereoWidth;
         wetR = mid - side * stereoWidth;
 
-        // Dry/Wet ミックス
-        outL = dry * dryL + wet * wetL;
-        outR = dry * dryR + wet * wetR;
+        // リニア Dry/Wet
+        outL = softClip (dry * dryL + wet * wetL);
+        outR = softClip (dry * dryR + wet * wetR);
     }
 
 private:
+    static float softClip (float x)
+    {
+        if (x > 1.5f)  return 1.0f;
+        if (x < -1.5f) return -1.0f;
+        return x - (x * x * x) / 6.75f;
+    }
+
     float dry = 0.7f;
     float wet = 0.3f;
     float earlyGain = 0.707f;

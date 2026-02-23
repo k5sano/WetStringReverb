@@ -70,7 +70,13 @@ public:
         float c2 = y2 * (d0 * d1 * d3) / ((1.0f - (-1.0f)) * (1.0f - 0.0f) * (1.0f - 2.0f));
         float c3 = y3 * (d0 * d1 * d2) / ((2.0f - (-1.0f)) * (2.0f - 0.0f) * (2.0f - 1.0f));
 
-        return c0 + c1 + c2 + c3;
+        float result = c0 + c1 + c2 + c3;
+
+        // NaN 伝播防止
+        if (std::isnan (result) || std::isinf (result))
+            return 0.0f;
+
+        return result;
     }
 
     /** 整数遅延で読み取り（高速パス） */

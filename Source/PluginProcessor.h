@@ -41,7 +41,7 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
 private:
-    // パラメータのアトミックポインタ
+    // Parameter atomic pointers
     std::atomic<float>* dryWetParam       = nullptr;
     std::atomic<float>* preDelayParam     = nullptr;
     std::atomic<float>* earlyLevelParam   = nullptr;
@@ -65,18 +65,27 @@ private:
     std::atomic<float>* modDepthParam     = nullptr;
     std::atomic<float>* modRateParam      = nullptr;
 
+    // Debug bypass switches
+    std::atomic<float>* bypassEarlyParam      = nullptr;
+    std::atomic<float>* bypassFDNParam        = nullptr;
+    std::atomic<float>* bypassDVNParam        = nullptr;
+    std::atomic<float>* bypassSaturationParam = nullptr;
+    std::atomic<float>* bypassToneFilterParam = nullptr;
+    std::atomic<float>* bypassAttenFilterParam = nullptr;
+    std::atomic<float>* bypassModulationParam = nullptr;
+
     // DSP
-    DSP::EarlyReflections earlyReflections[2];  // L, R
+    DSP::EarlyReflections earlyReflections[2];
     DSP::FDNReverb fdnReverb;
-    DSP::DarkVelvetNoise dvnTail[2];            // L, R
+    DSP::DarkVelvetNoise dvnTail[2];
     DSP::OversamplingManager oversamplingManager;
     DSP::ReverbMixer reverbMixer;
 
     // Pre-delay
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> preDelayLine[2];
-    static constexpr int MAX_PRE_DELAY_SAMPLES = 4800;  // 100ms @48kHz
+    static constexpr int MAX_PRE_DELAY_SAMPLES = 4800;
 
-    // 内部バッファ（processBlock 内で再アロケーションしない）
+    // Internal buffers
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> earlyBuffer;
     juce::AudioBuffer<float> fdnInputBuffer;

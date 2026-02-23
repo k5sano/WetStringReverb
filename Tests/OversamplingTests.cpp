@@ -91,7 +91,7 @@ public:
             juce::MidiBuffer midi;
 
             // Off → 2x → 4x → Off の切替
-            int factors[] = { 0, 1, 2, 0 };
+            std::array<int, 4> factors = { 0, 1, 2, 0 };
             for (auto f : factors)
             {
                 auto* param = processor.apvts.getParameter (Parameters::OVERSAMPLING);

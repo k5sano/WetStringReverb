@@ -117,6 +117,10 @@ if(BUILD_TESTS)
             JUCE_DISPLAY_SPLASH_SCREEN=0
     )
 
+    if(MSVC)
+        target_compile_options(WetStringReverbTests PRIVATE /utf-8)
+    endif()
+
     target_link_libraries(WetStringReverbTests
         PRIVATE
             juce::juce_audio_utils

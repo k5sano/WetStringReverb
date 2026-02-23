@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "DSP/DelayLine.h"
 #include "DSP/FeedbackMatrix.h"
@@ -7,39 +7,29 @@
 #include "DSP/SaturationToneFilter.h"
 #include <array>
 #include <cmath>
+#include <algorithm>
 
 namespace DSP
 {
 
-/**
- * 8 チャンネル Feedback Delay Network（第 2 層）。
- * オーバーサンプルされたサンプルレートで動作。
- *
- * 参考:
- *   Dal Santo et al., "Optimizing Tiny Colorless FDNs", EURASIP JASM (2025)
- *   Schlecht & Habets, "Scattering in FDNs", IEEE/ACM TASLP (2020)
- */
 class FDNReverb
 {
 public:
     static constexpr int NUM_CHANNELS = 8;
 
-    // 素数ベースの基本ディレイ長（@44.1kHz）
     static constexpr std::array<int, NUM_CHANNELS> BASE_DELAYS = {
         443, 557, 661, 769, 883, 1013, 1151, 1277
     };
 
     FDNReverb() = default;
 
-    void prepare (double sampleRate, int maxBlockSize)
+    void prepare (double sampleRate, int /*maxBlockSize*/)
     {
         sr = sampleRate;
 
         int maxDelay = static_cast<int> (1277 * 2.0 * (sampleRate / 44100.0)) + 64;
         for (int i = 0; i < NUM_CHANNELS; ++i)
-        {
             delayLines[i].prepare (maxDelay);
-        }
 
         for (auto& filter : attenuationFilters)
             filter.reset();
@@ -58,9 +48,18 @@ public:
                         float hfDamping, float diffusion,
                         float modDepth, float modRate,
                         float satAmount, float satDrive, int satType,
-                        float satTone, float satAsymmetry)
+                        float satTone, float satAsymmetry,
+                        bool bypSaturation  = false,
+                        bool bypToneFilter  = false,
+                        bool bypAttenFilter = false,
+                        bool bypModulation  = false)
     {
-        // ディレイ長の更新
+        bypassSaturation  = bypSaturation;
+        bypassToneFilter  = bypToneFilter;
+        bypassAttenFilter = bypAttenFilter;
+        bypassModulation  = bypModulation;
+
+        // Delay lengths
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
             float delayLength = static_cast<float> (BASE_DELAYS[i]) * roomSize
@@ -69,45 +68,54 @@ public:
             delayLines[i].setDelay (delayLength);
         }
 
-        // クロスオーバー周波数（hf_damping 0-100% → 1kHz-8kHz）
-        float crossoverHz = 1000.0f + (hfDamping * 0.01f) * 7000.0f;
+        // Crossover: exponential mapping
+        float crossoverHz = 20000.0f * std::pow (500.0f / 20000.0f,
+                                                  hfDamping * 0.01f);
 
-        // 周波数依存減衰フィルタの更新
+        // Frequency-dependent attenuation per delay line
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
             float delaySec = currentDelays[i] / static_cast<float> (sr);
-            float gLow = std::pow (10.0f, -3.0f * delaySec / (lowRT60 + 1.0e-6f));
-            float gHigh = std::pow (10.0f, -3.0f * delaySec / (highRT60 + 1.0e-6f));
+            float gLow  = std::pow (10.0f, -3.0f * delaySec
+                                            / std::max (lowRT60,  0.05f));
+            float gHigh = std::pow (10.0f, -3.0f * delaySec
+                                            / std::max (highRT60, 0.05f));
+
+            // Safety clamp: loop gain must never exceed 1
+            gLow  = std::min (gLow,  0.9999f);
+            gHigh = std::min (gHigh, 0.9999f);
+
             attenuationFilters[i].setCoefficients (gLow, gHigh, crossoverHz,
                                                     static_cast<float> (sr));
         }
 
-        // サチュレーション設定
+        // Diffusion: controls feedback matrix vs identity
+        // Applied with energy normalization to guarantee unitary operation.
+        currentDiffusion = std::clamp (diffusion * 0.01f, 0.0f, 1.0f);
+
+        // Saturation
         for (auto& sat : saturators)
             sat.setParameters (satAmount, satDrive, satType, satAsymmetry);
 
-        // トーンフィルタ
+        // Tone filter
         for (auto& tf : toneFilters)
             tf.setTone (satTone);
 
-        // モジュレーション
+        // Modulation
         currentModDepth = modDepth * 0.01f;
-        currentModRate = modRate;
-        maxModSamples = 4.0f;  // 最大 4 サンプル変調
+        currentModRate  = modRate;
+        maxModSamples   = 4.0f;
     }
 
-    /**
-     * ステレオ入力を受け取り、8ch FDN で処理してステレオ出力を返す。
-     */
-    void processSample (float inputL, float inputR, float& outputL, float& outputR)
+    void processSample (float inputL, float inputR,
+                        float& outputL, float& outputR)
     {
-        // ディレイラインから読み取り
+        // Read from delay lines
         std::array<float, NUM_CHANNELS> delayOutputs;
         for (int i = 0; i < NUM_CHANNELS; ++i)
             delayOutputs[i] = delayLines[i].read();
 
-        // 出力の計算（FDN 出力ゲイン）
-        // L チャンネル: 偶数インデックス, R チャンネル: 奇数インデックス
+        // Output tap (pre-feedback)
         outputL = 0.0f;
         outputR = 0.0f;
         for (int i = 0; i < NUM_CHANNELS; ++i)
@@ -117,41 +125,120 @@ public:
             else
                 outputR += delayOutputs[i];
         }
-        outputL /= static_cast<float> (NUM_CHANNELS / 2);
-        outputR /= static_cast<float> (NUM_CHANNELS / 2);
+        float outputScale = 1.0f / static_cast<float> (NUM_CHANNELS / 2);
+        outputL *= outputScale;
+        outputR *= outputScale;
 
-        // フィードバック行列
-        std::array<float, NUM_CHANNELS> matrixOutput;
-        feedbackMatrix.process (delayOutputs, matrixOutput);
+        // --- Feedback path ---
 
-        // サチュレーション → トーンフィルタ → 減衰フィルタ
+        // 1. Attenuation filter (frequency-dependent decay)
+        std::array<float, NUM_CHANNELS> attenuated;
+        if (bypassAttenFilter)
+        {
+            attenuated = delayOutputs;
+        }
+        else
+        {
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+                attenuated[i] = attenuationFilters[i].process (delayOutputs[i]);
+        }
+
+        // 2. Feedback matrix (unitary mixing)
+        //    Full Hadamard when diffusion=1, identity when diffusion=0.
+        //    Blended with energy normalization to preserve unitarity.
+        std::array<float, NUM_CHANNELS> feedback;
+        if (currentDiffusion < 0.001f)
+        {
+            // No mixing: parallel delays
+            feedback = attenuated;
+        }
+        else if (currentDiffusion > 0.999f)
+        {
+            // Full Hadamard
+            feedbackMatrix.process (attenuated, feedback);
+        }
+        else
+        {
+            // Blended: interpolate then normalise to preserve energy
+            std::array<float, NUM_CHANNELS> fullMix;
+            feedbackMatrix.process (attenuated, fullMix);
+
+            // Compute input energy
+            float energyIn = 0.0f;
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+                energyIn += attenuated[i] * attenuated[i];
+
+            // Blend
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+                feedback[i] = (1.0f - currentDiffusion) * attenuated[i]
+                             + currentDiffusion * fullMix[i];
+
+            // Compute output energy and normalise
+            float energyOut = 0.0f;
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+                energyOut += feedback[i] * feedback[i];
+
+            if (energyOut > 1.0e-10f && energyIn > 1.0e-10f)
+            {
+                float norm = std::sqrt (energyIn / energyOut);
+                for (int i = 0; i < NUM_CHANNELS; ++i)
+                    feedback[i] *= norm;
+            }
+        }
+
+        // 3. Saturation (or bypass)
+        std::array<float, NUM_CHANNELS> afterSat;
+        if (bypassSaturation)
+        {
+            afterSat = feedback;
+        }
+        else
+        {
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+                afterSat[i] = saturators[i].process (feedback[i]);
+        }
+
+        // 4. Tone filter (or bypass)
         std::array<float, NUM_CHANNELS> processed;
-        for (int i = 0; i < NUM_CHANNELS; ++i)
+        if (bypassToneFilter)
         {
-            float sat = saturators[i].process (matrixOutput[i]);
-            float toned = toneFilters[i].process (sat);
-            processed[i] = attenuationFilters[i].process (toned);
+            processed = afterSat;
+        }
+        else
+        {
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+                processed[i] = toneFilters[i].process (afterSat[i]);
         }
 
-        // 変調 + ディレイライン書き込み
-        float lfoInc = 2.0f * 3.14159265f * currentModRate / static_cast<float> (sr);
+        // 5. Modulation + delay line write
+        float lfoInc = 2.0f * 3.14159265f * currentModRate
+                     / static_cast<float> (sr);
+
+        // Input gain: scale input to prevent overdriving the FDN.
+        // 1/sqrt(N/2) for energy-matched injection into 8-channel FDN.
+        constexpr float inputScale = 1.0f / 2.0f;
+
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
-            // 変調
-            float phaseOffset = 2.0f * 3.14159265f * static_cast<float> (i)
-                              / static_cast<float> (NUM_CHANNELS);
-            float mod = currentModDepth * maxModSamples
-                      * std::sin (static_cast<float> (lfoPhase) + phaseOffset);
-            delayLines[i].setDelay (currentDelays[i] + mod);
+            if (!bypassModulation)
+            {
+                float phaseOffset = 2.0f * 3.14159265f * static_cast<float> (i)
+                                  / static_cast<float> (NUM_CHANNELS);
+                float mod = currentModDepth * maxModSamples
+                          * std::sin (static_cast<float> (lfoPhase) + phaseOffset);
+                delayLines[i].setDelay (currentDelays[i] + mod);
+            }
 
-            // 入力注入 + フィードバック書き込み
             float inputSample = (i % 2 == 0) ? inputL : inputR;
-            delayLines[i].write (inputSample + processed[i]);
+            delayLines[i].write (inputSample * inputScale + processed[i]);
         }
 
-        lfoPhase += static_cast<double> (lfoInc);
-        if (lfoPhase > 2.0 * 3.14159265358979323846)
-            lfoPhase -= 2.0 * 3.14159265358979323846;
+        if (!bypassModulation)
+        {
+            lfoPhase += static_cast<double> (lfoInc);
+            if (lfoPhase > 2.0 * 3.14159265358979323846)
+                lfoPhase -= 2.0 * 3.14159265358979323846;
+        }
     }
 
     void reset()
@@ -176,10 +263,16 @@ private:
     std::array<SaturationToneFilter, NUM_CHANNELS> toneFilters;
 
     std::array<float, NUM_CHANNELS> currentDelays {};
-    float currentModDepth = 0.0f;
-    float currentModRate = 0.5f;
-    float maxModSamples = 4.0f;
+    float currentModDepth  = 0.0f;
+    float currentModRate   = 0.5f;
+    float maxModSamples    = 4.0f;
+    float currentDiffusion = 0.8f;
     double lfoPhase = 0.0;
+
+    bool bypassSaturation  = false;
+    bool bypassToneFilter  = false;
+    bool bypassAttenFilter = false;
+    bool bypassModulation  = false;
 };
 
 }  // namespace DSP

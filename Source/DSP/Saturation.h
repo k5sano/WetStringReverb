@@ -63,6 +63,15 @@ public:
             float dcBlocked = saturated - dcX1 + dcBlockCoeff * dcY1;
             dcX1 = saturated;
             dcY1 = dcBlocked;
+
+            // NaN/Inf 伝播防止: DC ブロッカー状態をリセット
+            if (std::isnan (dcY1) || std::isinf (dcY1))
+            {
+                dcX1 = 0.0f;
+                dcY1 = 0.0f;
+                dcBlocked = 0.0f;
+            }
+
             result = dcBlocked;
         }
         else

@@ -49,35 +49,19 @@ public:
         std::fill (output, output + numSamples, 0.0f);
 
         // pulse-outer → sample-inner（キャッシュ効率改善）
-        // 各パルスでスライディングウィンドウにより width ループを排除
+        // width=1 固定のため直接1サンプル参照
         for (const auto& pulse : dvnPulses)
         {
             const float coeff = pulse.sign * pulse.envelope;
             if (std::abs (coeff) < 1.0e-8f)
                 continue;
 
-            const int w = pulse.width;
-            const float scaledCoeff = coeff / static_cast<float> (w);
             const int base = writePos - pulse.position;
 
-            // n=0 のウィンドウ合計を初期化
-            float windowSum = 0.0f;
-            for (int j = 0; j < w; ++j)
+            for (int n = 0; n < numSamples; ++n)
             {
-                int idx = ((base - j) % ringSize + ringSize) % ringSize;
-                windowSum += inputRingBuffer[static_cast<size_t> (idx)];
-            }
-
-            output[0] += scaledCoeff * windowSum;
-
-            // スライディングウィンドウで残りサンプルを処理
-            for (int n = 1; n < numSamples; ++n)
-            {
-                int addIdx = ((base + n) % ringSize + ringSize) % ringSize;
-                int remIdx = ((base + n - w) % ringSize + ringSize) % ringSize;
-                windowSum += inputRingBuffer[static_cast<size_t> (addIdx)];
-                windowSum -= inputRingBuffer[static_cast<size_t> (remIdx)];
-                output[n] += scaledCoeff * windowSum;
+                int idx = ((base + n) % ringSize + ringSize) % ringSize;
+                output[n] += coeff * inputRingBuffer[static_cast<size_t> (idx)];
             }
         }
 
@@ -129,9 +113,8 @@ private:
             rng = rng * 1664525u + 1013904223u;
             float sign = (rng & 0x80000000u) ? -1.0f : 1.0f;
 
-            // パルス幅を 1..4 に制限
-            rng = rng * 1664525u + 1013904223u;
-            int width = 1 + static_cast<int> (rng % 4u);
+            // パルス幅を 1 に固定（width ループ排除）
+            int width = 1;
 
             if (pos < dvnLength)
                 dvnPulses.push_back ({ pos, sign, width, 1.0f });

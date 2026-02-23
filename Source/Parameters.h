@@ -5,7 +5,7 @@
 namespace Parameters
 {
 
-// パラメータ ID 定数
+// Parameter ID constants
 inline constexpr const char* DRY_WET            = "dry_wet";
 inline constexpr const char* PRE_DELAY_MS       = "pre_delay_ms";
 inline constexpr const char* EARLY_LEVEL_DB     = "early_level_db";
@@ -29,11 +29,20 @@ inline constexpr const char* SAT_ASYMMETRY      = "sat_asymmetry";
 inline constexpr const char* MOD_DEPTH          = "mod_depth";
 inline constexpr const char* MOD_RATE_HZ        = "mod_rate_hz";
 
+// Debug bypass switches
+inline constexpr const char* BYPASS_EARLY       = "bypass_early";
+inline constexpr const char* BYPASS_FDN         = "bypass_fdn";
+inline constexpr const char* BYPASS_DVN         = "bypass_dvn";
+inline constexpr const char* BYPASS_SATURATION  = "bypass_saturation";
+inline constexpr const char* BYPASS_TONE_FILTER = "bypass_tone_filter";
+inline constexpr const char* BYPASS_ATTEN_FILTER = "bypass_atten_filter";
+inline constexpr const char* BYPASS_MODULATION  = "bypass_modulation";
+
 inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // ---- メインコントロール (7) ----
+    // ---- Main controls (7) ----
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { DRY_WET, 1 },
         "Dry/Wet Mix",
@@ -79,9 +88,9 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         juce::ParameterID { OVERSAMPLING, 1 },
         "Oversampling",
         juce::StringArray { "Off", "2x", "4x" },
-        1));  // default: 2x
+        1));
 
-    // ---- 残響特性 (5) ----
+    // ---- Reverb character (5) ----
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { LOW_RT60_S, 1 },
         "Low RT60",
@@ -117,7 +126,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         40.0f,
         juce::AudioParameterFloatAttributes().withLabel ("%")));
 
-    // ---- サチュレーション (5) ----
+    // ---- Saturation (5) ----
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { SAT_AMOUNT, 1 },
         "Saturation Amount",
@@ -136,7 +145,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         juce::ParameterID { SAT_TYPE, 1 },
         "Saturation Type",
         juce::StringArray { "Soft", "Warm", "Tape", "Tube" },
-        1));  // default: Warm
+        1));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { SAT_TONE, 1 },
@@ -152,7 +161,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         0.0f,
         juce::AudioParameterFloatAttributes().withLabel ("%")));
 
-    // ---- モジュレーション (2) ----
+    // ---- Modulation (2) ----
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { MOD_DEPTH, 1 },
         "Mod Depth",
@@ -166,6 +175,35 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         juce::NormalisableRange<float> (0.1f, 5.0f, 0.01f),
         0.5f,
         juce::AudioParameterFloatAttributes().withLabel ("Hz")));
+
+    // ---- Debug bypass switches (7) ----
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_EARLY, 1 },
+        "Bypass Early Reflections", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_FDN, 1 },
+        "Bypass FDN Reverb", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_DVN, 1 },
+        "Bypass DVN Tail", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_SATURATION, 1 },
+        "Bypass Saturation", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_TONE_FILTER, 1 },
+        "Bypass Tone Filter", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_ATTEN_FILTER, 1 },
+        "Bypass Attenuation Filter", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { BYPASS_MODULATION, 1 },
+        "Bypass Modulation", false));
 
     return { params.begin(), params.end() };
 }

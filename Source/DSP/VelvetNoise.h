@@ -3,16 +3,12 @@
 #include <juce_core/juce_core.h>
 #include <vector>
 #include <cstdint>
+#include <cmath>
+#include <algorithm>
 
 namespace DSP
 {
 
-/**
- * Optimized Velvet Noise (OVN) パルス列生成器。
- * スパース FIR フィルタとして初期反射を生成。
- *
- * 参考: Fagerström et al., "Velvet-Noise Feedback Delay Network", DAFx-20 (2020)
- */
 class VelvetNoise
 {
 public:
@@ -24,13 +20,6 @@ public:
 
     VelvetNoise() = default;
 
-    /**
-     * OVN パルス列を生成。
-     * @param sampleRate サンプルレート
-     * @param durationMs シーケンス長 (ms)
-     * @param density パルス密度 (pulses/s)
-     * @param seed 乱数シード（L/R で異なるシードを使用）
-     */
     void generate (double sampleRate, float durationMs, float density, uint32_t seed)
     {
         int totalSamples = static_cast<int> (sampleRate * durationMs * 0.001f);
@@ -43,11 +32,10 @@ public:
         uint32_t rng = seed;
         for (int m = 0; m < numPulses; ++m)
         {
-            // グリッド内のランダム位置
             rng = rng * 1664525u + 1013904223u;
-            int pos = m * gridSize + static_cast<int> (rng % static_cast<uint32_t> (gridSize));
+            int pos = m * gridSize
+                    + static_cast<int> (rng % static_cast<uint32_t> (gridSize));
 
-            // ランダム符号
             rng = rng * 1664525u + 1013904223u;
             float sign = (rng & 0x80000000u) ? -1.0f : 1.0f;
 
@@ -57,21 +45,33 @@ public:
 
         sequenceLength = totalSamples;
 
-        // 指数減衰エンベロープ係数を事前計算
-        decayRate = -3.0f * std::log (10.0f) / static_cast<float> (totalSamples);  // -60dB over duration
+        // -60dB decay over the full duration
+        decayRate = -3.0f * std::log (10.0f)
+                  / std::max (1.0f, static_cast<float> (totalSamples));
+
+        // Energy normalisation: ensure the sparse FIR has unity peak gain.
+        // Sum of absolute envelope-weighted coefficients:
+        float absSum = 0.0f;
+        for (const auto& pulse : pulses)
+        {
+            float env = std::exp (decayRate * static_cast<float> (pulse.position));
+            absSum += std::abs (env);
+        }
+        // Normalise so that worst-case (all pulses in phase) sums to 1.0
+        normGain = (absSum > 1.0e-6f) ? (1.0f / absSum) : 1.0f;
     }
 
-    /** スパース FIR 畳み込み */
-    void convolve (const float* input, float* output, int numSamples, float gain) const
+    void convolve (const float* input, float* output,
+                   int numSamples, float gain) const
     {
-        // output をゼロクリア
         for (int i = 0; i < numSamples; ++i)
             output[i] = 0.0f;
 
         for (const auto& pulse : pulses)
         {
-            float envelope = std::exp (decayRate * static_cast<float> (pulse.position));
-            float coeff = pulse.sign * gain * envelope;
+            float envelope = std::exp (decayRate
+                           * static_cast<float> (pulse.position));
+            float coeff = pulse.sign * gain * envelope * normGain;
 
             for (int n = 0; n < numSamples; ++n)
             {
@@ -89,6 +89,7 @@ private:
     std::vector<Pulse> pulses;
     int sequenceLength = 0;
     float decayRate = 0.0f;
+    float normGain = 1.0f;
 };
 
 }  // namespace DSP

@@ -8,15 +8,13 @@ namespace DSP
 {
 
 /**
- * 8x8 Householder 反射行列。
+ * 8x8 Hadamard 行列（符号反転ランダム化付き）。
  *
- * A = I - (2/N) * ones(N,N)
+ * H_1 = {1} から再帰展開:
+ *   H_{2k} = [ H_k   H_k  ]
+ *            [ H_k  -H_k  ]
  *
- * N=8 の場合:
- *   対角要素: 1 - 2/8 = 0.75
- *   非対角要素: -2/8 = -0.25
- *
- * ユニタリ行列でエネルギー保存を保証。
+ * 1/sqrt(N) で正規化し、ユニタリ行列でエネルギー保存を保証。
  * Schlecht & Habets (2020) の散乱行列理論に基づく。
  */
 class FeedbackMatrix
@@ -26,18 +24,34 @@ public:
 
     FeedbackMatrix()
     {
-        // Householder 行列の初期化
+        float h[N][N];
+        h[0][0] = 1.0f;
+        int size = 1;
+
+        while (size < N)
+        {
+            for (int i = 0; i < size; ++i)
+            {
+                for (int j = 0; j < size; ++j)
+                {
+                    float val = h[i][j];
+                    h[i][j + size]        =  val;
+                    h[i + size][j]        =  val;
+                    h[i + size][j + size] = -val;
+                }
+            }
+            size *= 2;
+        }
+
+        float norm = 1.0f / std::sqrt(static_cast<float>(N));
         for (int i = 0; i < N; ++i)
             for (int j = 0; j < N; ++j)
-                matrix[i][j] = (i == j) ? (1.0f - 2.0f / static_cast<float> (N))
-                                        : (-2.0f / static_cast<float> (N));
+                matrix[i][j] = h[i][j] * norm;
 
-        // 入出力ゲインにランダム符号を付与（位相ランダム化）
-        // 固定シードで再現性を確保
         uint32_t seed = 0x12345678u;
         for (int i = 0; i < N; ++i)
         {
-            seed = seed * 1664525u + 1013904223u;  // LCG
+            seed = seed * 1664525u + 1013904223u;
             inputSigns[i] = (seed & 0x80000000u) ? -1.0f : 1.0f;
             seed = seed * 1664525u + 1013904223u;
             outputSigns[i] = (seed & 0x80000000u) ? -1.0f : 1.0f;

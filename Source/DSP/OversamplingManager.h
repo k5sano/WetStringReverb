@@ -21,6 +21,7 @@ public:
      */
     void prepare (int numChannels, int factor, double sampleRate, int maxBlockSize)
     {
+        juce::ignoreUnused (sampleRate);
         currentFactor = factor;
         channels = numChannels;
 

@@ -7,7 +7,6 @@ WetStringReverbProcessor::WetStringReverbProcessor()
                         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "Parameters", Parameters::createParameterLayout())
 {
-    // パラメータポインタの取得
     dryWetParam       = apvts.getRawParameterValue (Parameters::DRY_WET);
     preDelayParam     = apvts.getRawParameterValue (Parameters::PRE_DELAY_MS);
     earlyLevelParam   = apvts.getRawParameterValue (Parameters::EARLY_LEVEL_DB);
@@ -30,6 +29,15 @@ WetStringReverbProcessor::WetStringReverbProcessor()
 
     modDepthParam     = apvts.getRawParameterValue (Parameters::MOD_DEPTH);
     modRateParam      = apvts.getRawParameterValue (Parameters::MOD_RATE_HZ);
+
+    // Debug bypass switches
+    bypassEarlyParam      = apvts.getRawParameterValue (Parameters::BYPASS_EARLY);
+    bypassFDNParam        = apvts.getRawParameterValue (Parameters::BYPASS_FDN);
+    bypassDVNParam        = apvts.getRawParameterValue (Parameters::BYPASS_DVN);
+    bypassSaturationParam = apvts.getRawParameterValue (Parameters::BYPASS_SATURATION);
+    bypassToneFilterParam = apvts.getRawParameterValue (Parameters::BYPASS_TONE_FILTER);
+    bypassAttenFilterParam = apvts.getRawParameterValue (Parameters::BYPASS_ATTEN_FILTER);
+    bypassModulationParam = apvts.getRawParameterValue (Parameters::BYPASS_MODULATION);
 }
 
 void WetStringReverbProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -37,7 +45,6 @@ void WetStringReverbProcessor::prepareToPlay (double sampleRate, int samplesPerB
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
 
-    // Pre-delay (each delay line is single-channel)
     juce::dsp::ProcessSpec spec { sampleRate,
                                    static_cast<juce::uint32> (samplesPerBlock),
                                    1 };
@@ -48,19 +55,15 @@ void WetStringReverbProcessor::prepareToPlay (double sampleRate, int samplesPerB
         pd.setMaximumDelayInSamples (static_cast<int> (sampleRate * 0.1) + 1);
     }
 
-    // Early Reflections (L/R で異なるシード)
     earlyReflections[0].prepare (sampleRate, samplesPerBlock, 0xDEADBEEFu);
     earlyReflections[1].prepare (sampleRate, samplesPerBlock, 0xCAFEBABEu);
 
-    // オーバーサンプリング + FDN
     int osFactor = static_cast<int> (oversamplingParam->load());
     initializeOversampling (osFactor);
 
-    // DVN テール
     dvnTail[0].prepare (sampleRate, samplesPerBlock, 0xABCD1234u);
     dvnTail[1].prepare (sampleRate, samplesPerBlock, 0x5678EF01u);
 
-    // 内部バッファの確保
     dryBuffer.setSize (2, samplesPerBlock);
     earlyBuffer.setSize (2, samplesPerBlock);
     fdnInputBuffer.setSize (2, samplesPerBlock);
@@ -82,29 +85,35 @@ void WetStringReverbProcessor::initializeOversampling (int factor)
 
 void WetStringReverbProcessor::releaseResources()
 {
-    // リソース解放
 }
 
 void WetStringReverbProcessor::updateParameters()
 {
-    float roomSize    = roomSizeParam->load();
-    float lowRT60     = lowRT60Param->load();
-    float highRT60    = highRT60Param->load();
-    float hfDamping   = hfDampingParam->load();
-    float diffusion   = diffusionParam->load();
-    float modDepth    = modDepthParam->load();
-    float modRate     = modRateParam->load();
-    float satAmount   = satAmountParam->load();
-    float satDrive    = satDriveParam->load();
-    int   satType     = static_cast<int> (satTypeParam->load());
-    float satTone     = satToneParam->load();
+    float roomSize     = roomSizeParam->load();
+    float lowRT60      = lowRT60Param->load();
+    float highRT60     = highRT60Param->load();
+    float hfDamping    = hfDampingParam->load();
+    float diffusion    = diffusionParam->load();
+    float modDepth     = modDepthParam->load();
+    float modRate      = modRateParam->load();
+    float satAmount    = satAmountParam->load();
+    float satDrive     = satDriveParam->load();
+    int   satType      = static_cast<int> (satTypeParam->load());
+    float satTone      = satToneParam->load();
     float satAsymmetry = satAsymmetryParam->load();
+
+    // Read bypass flags
+    bool bSat   = bypassSaturationParam->load()  >= 0.5f;
+    bool bTone  = bypassToneFilterParam->load()   >= 0.5f;
+    bool bAtten = bypassAttenFilterParam->load()  >= 0.5f;
+    bool bMod   = bypassModulationParam->load()   >= 0.5f;
 
     fdnReverb.setParameters (roomSize, lowRT60, highRT60, hfDamping, diffusion,
                              modDepth, modRate,
-                             satAmount, satDrive, satType, satTone, satAsymmetry);
+                             satAmount, satDrive, satType, satTone, satAsymmetry,
+                             bSat, bTone, bAtten, bMod);
 
-    float decayShape  = decayShapeParam->load();
+    float decayShape = decayShapeParam->load();
     dvnTail[0].setParameters (decayShape, lowRT60);
     dvnTail[1].setParameters (decayShape, lowRT60);
 
@@ -124,15 +133,12 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     auto totalNumOutputChannels = getTotalNumOutputChannels();
     int numSamples = buffer.getNumSamples();
 
-    // 未使用出力チャンネルのクリア
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, numSamples);
 
-    // モノ入力のステレオ化
     if (totalNumInputChannels == 1 && totalNumOutputChannels >= 2)
         buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
 
-    // オーバーサンプリング倍率の変更チェック
     int osFactor = static_cast<int> (oversamplingParam->load());
     if (osFactor != lastOversamplingFactor)
     {
@@ -142,10 +148,14 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         suspendProcessing (false);
     }
 
-    // パラメータ更新
     updateParameters();
 
-    // Dry 信号のコピー（事前確保バッファを使用）
+    // Read layer bypass flags
+    bool bypassEarly = bypassEarlyParam->load() >= 0.5f;
+    bool bypassFDN   = bypassFDNParam->load()   >= 0.5f;
+    bool bypassDVN   = bypassDVNParam->load()    >= 0.5f;
+
+    // Dry copy
     for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
         dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
@@ -165,47 +175,70 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // Early Reflections
-    float earlyGain = std::pow (10.0f, earlyLevelParam->load() / 20.0f);
-    for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+    if (bypassEarly)
     {
-        earlyReflections[ch].process (buffer.getReadPointer (ch),
-                                       earlyBuffer.getWritePointer (ch),
-                                       numSamples, earlyGain);
+        earlyBuffer.clear (0, 0, numSamples);
+        if (earlyBuffer.getNumChannels() >= 2)
+            earlyBuffer.clear (1, 0, numSamples);
+    }
+    else
+    {
+        for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+        {
+            earlyReflections[ch].process (buffer.getReadPointer (ch),
+                                           earlyBuffer.getWritePointer (ch),
+                                           numSamples, 1.0f);
+        }
     }
 
-    // FDN へのオーバーサンプリング処理
-    for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
-        fdnInputBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-
-    juce::dsp::AudioBlock<float> fdnBlock (fdnInputBuffer);
-    auto oversampledBlock = oversamplingManager.processSamplesUp (fdnBlock);
-
-    // FDN 処理（オーバーサンプルレートで）
-    int osNumSamples = static_cast<int> (oversampledBlock.getNumSamples());
-    auto* osL = oversampledBlock.getChannelPointer (0);
-    auto* osR = oversampledBlock.getChannelPointer (1);
-
-    for (int i = 0; i < osNumSamples; ++i)
+    // FDN
+    if (bypassFDN)
     {
-        float outL, outR;
-        fdnReverb.processSample (osL[i], osR[i], outL, outR);
-        osL[i] = outL;
-        osR[i] = outR;
+        fdnInputBuffer.clear (0, 0, numSamples);
+        if (fdnInputBuffer.getNumChannels() >= 2)
+            fdnInputBuffer.clear (1, 0, numSamples);
+    }
+    else
+    {
+        for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+            fdnInputBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+
+        juce::dsp::AudioBlock<float> fdnBlock (fdnInputBuffer);
+        auto oversampledBlock = oversamplingManager.processSamplesUp (fdnBlock);
+
+        int osNumSamples = static_cast<int> (oversampledBlock.getNumSamples());
+        auto* osL = oversampledBlock.getChannelPointer (0);
+        auto* osR = oversampledBlock.getChannelPointer (1);
+
+        for (int i = 0; i < osNumSamples; ++i)
+        {
+            float outL, outR;
+            fdnReverb.processSample (osL[i], osR[i], outL, outR);
+            osL[i] = outL;
+            osR[i] = outR;
+        }
+
+        oversamplingManager.processSamplesDown (fdnBlock);
     }
 
-    // ダウンサンプル
-    oversamplingManager.processSamplesDown (fdnBlock);
-
-    // DVN テール
-    float lateGain = std::pow (10.0f, lateLevelParam->load() / 20.0f);
-    for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+    // DVN Tail
+    if (bypassDVN)
     {
-        dvnTail[ch].process (fdnInputBuffer.getReadPointer (ch),
-                              dvnBuffer.getWritePointer (ch),
-                              numSamples, lateGain);
+        dvnBuffer.clear (0, 0, numSamples);
+        if (dvnBuffer.getNumChannels() >= 2)
+            dvnBuffer.clear (1, 0, numSamples);
+    }
+    else
+    {
+        for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+        {
+            dvnTail[ch].process (fdnInputBuffer.getReadPointer (ch),
+                                  dvnBuffer.getWritePointer (ch),
+                                  numSamples, 1.0f);
+        }
     }
 
-    // ミキシング
+    // Mixing
     auto* outL = buffer.getWritePointer (0);
     auto* outR = buffer.getNumChannels() >= 2 ? buffer.getWritePointer (1) : outL;
 
@@ -214,11 +247,13 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float mixL, mixR;
         reverbMixer.process (
             dryBuffer.getReadPointer (0)[i],
-            dryBuffer.getNumChannels() >= 2 ? dryBuffer.getReadPointer (1)[i] : dryBuffer.getReadPointer (0)[i],
+            dryBuffer.getNumChannels() >= 2 ? dryBuffer.getReadPointer (1)[i]
+                                            : dryBuffer.getReadPointer (0)[i],
             earlyBuffer.getReadPointer (0)[i],
             earlyBuffer.getReadPointer (1)[i],
             fdnInputBuffer.getReadPointer (0)[i],
-            fdnInputBuffer.getNumChannels() >= 2 ? fdnInputBuffer.getReadPointer (1)[i] : fdnInputBuffer.getReadPointer (0)[i],
+            fdnInputBuffer.getNumChannels() >= 2 ? fdnInputBuffer.getReadPointer (1)[i]
+                                                 : fdnInputBuffer.getReadPointer (0)[i],
             dvnBuffer.getReadPointer (0)[i],
             dvnBuffer.getReadPointer (1)[i],
             mixL, mixR);

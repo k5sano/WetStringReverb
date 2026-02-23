@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../Source/PluginProcessor.h"
 #include "../Source/Parameters.h"
+#include <iostream>
 
 //==============================================================================
 class ParameterTests : public juce::UnitTest
@@ -194,12 +195,21 @@ public:
 static PluginBasicTests pluginBasicTests;
 
 //==============================================================================
+// stdout にログ出力するカスタムランナー
+class ConsoleTestRunner : public juce::UnitTestRunner
+{
+    void logMessage (const juce::String& message) override
+    {
+        std::cout << message << std::endl;
+    }
+};
+
 // テストランナー（main）
 int main()
 {
     juce::ScopedJuceInitialiser_GUI init;
 
-    juce::UnitTestRunner runner;
+    ConsoleTestRunner runner;
     runner.runAllTests();
 
     int numFailures = 0;
@@ -210,5 +220,6 @@ int main()
             numFailures += result->failures;
     }
 
+    std::cout << "\n=== Total failures: " << numFailures << " ===" << std::endl;
     return numFailures > 0 ? 1 : 0;
 }
