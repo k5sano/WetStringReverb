@@ -84,7 +84,7 @@ public:
 
         beginTest ("OS factor change does not crash");
         {
-            VelvetUnderDronProcessor processor;
+            WetStringReverbProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
             juce::AudioBuffer<float> buffer (2, 512);
@@ -123,7 +123,7 @@ public:
 private:
     void processWithOversamplingFactor (int factor, double sampleRate, int blockSize)
     {
-        VelvetUnderDronProcessor processor;
+        WetStringReverbProcessor processor;
 
         // OS パラメータを設定してから prepare
         auto* param = processor.apvts.getParameter (Parameters::OVERSAMPLING);

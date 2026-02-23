@@ -1,18 +1,18 @@
 #include "PluginEditor.h"
 
-VelvetUnderDronEditor::VelvetUnderDronEditor (VelvetUnderDronProcessor& p)
+WetStringReverbEditor::WetStringReverbEditor (WetStringReverbProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p)
 {
     setSize (600, 400);
 }
 
-void VelvetUnderDronEditor::paint (juce::Graphics& g)
+void WetStringReverbEditor::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff1a1a2e));
 
     g.setColour (juce::Colours::white);
     g.setFont (24.0f);
-    g.drawFittedText ("VelvetUnderDron", getLocalBounds().removeFromTop (60),
+    g.drawFittedText ("WetStringReverb", getLocalBounds().removeFromTop (60),
                       juce::Justification::centred, 1);
 
     g.setFont (14.0f);
@@ -28,7 +28,7 @@ void VelvetUnderDronEditor::paint (juce::Graphics& g)
                       juce::Justification::centredBottom, 1);
 }
 
-void VelvetUnderDronEditor::resized()
+void WetStringReverbEditor::resized()
 {
     // プレースホルダー — 将来の GUI 拡張用
 }

@@ -1,7 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-VelvetUnderDronProcessor::VelvetUnderDronProcessor()
+WetStringReverbProcessor::WetStringReverbProcessor()
     : AudioProcessor (BusesProperties()
                         .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
@@ -39,7 +39,7 @@ VelvetUnderDronProcessor::VelvetUnderDronProcessor()
     bypassModulationParam = apvts.getRawParameterValue (Parameters::BYPASS_MODULATION);
 }
 
-void VelvetUnderDronProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void WetStringReverbProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
@@ -71,7 +71,7 @@ void VelvetUnderDronProcessor::prepareToPlay (double sampleRate, int samplesPerB
     lastOversamplingFactor = osFactor;
 }
 
-void VelvetUnderDronProcessor::initializeOversampling (int factor)
+void WetStringReverbProcessor::initializeOversampling (int factor)
 {
     oversamplingManager.prepare (2, factor, currentSampleRate, currentBlockSize);
     double osRate = oversamplingManager.getOversampledRate (currentSampleRate);
@@ -82,11 +82,11 @@ void VelvetUnderDronProcessor::initializeOversampling (int factor)
     setLatencySamples (static_cast<int> (totalLatency));
 }
 
-void VelvetUnderDronProcessor::releaseResources()
+void WetStringReverbProcessor::releaseResources()
 {
 }
 
-void VelvetUnderDronProcessor::updateParameters()
+void WetStringReverbProcessor::updateParameters()
 {
     float roomSize     = roomSizeParam->load();
     float lowRT60      = lowRT60Param->load();
@@ -123,7 +123,7 @@ void VelvetUnderDronProcessor::updateParameters()
     reverbMixer.setParameters (dryWet, earlyLevel, lateLevel, stereoWidth);
 }
 
-void VelvetUnderDronProcessor::processBlock (juce::AudioBuffer<float>& buffer,
+void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                               juce::MidiBuffer& /*midiMessages*/)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -257,19 +257,19 @@ void VelvetUnderDronProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 }
 
-juce::AudioProcessorEditor* VelvetUnderDronProcessor::createEditor()
+juce::AudioProcessorEditor* WetStringReverbProcessor::createEditor()
 {
-    return new VelvetUnderDronEditor (*this);
+    return new WetStringReverbEditor (*this);
 }
 
-void VelvetUnderDronProcessor::getStateInformation (juce::MemoryBlock& destData)
+void WetStringReverbProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
 
-void VelvetUnderDronProcessor::setStateInformation (const void* data, int sizeInBytes)
+void WetStringReverbProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
     if (xmlState != nullptr)
@@ -279,5 +279,5 @@ void VelvetUnderDronProcessor::setStateInformation (const void* data, int sizeIn
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new VelvetUnderDronProcessor();
+    return new WetStringReverbProcessor();
 }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VelvetUnderDron VERSION 1.0.0)
+project(WetStringReverb VERSION 1.0.0)
 
 # JUCE を add_subdirectory で取り込む（JUCE サブモジュールを前提）
 add_subdirectory(JUCE)
@@ -10,22 +10,22 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # プラグイン定義
-juce_add_plugin(VelvetUnderDron
-    COMPANY_NAME "K5SANO"
+juce_add_plugin(WetStringReverb
+    COMPANY_NAME "WetString Audio"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
-    PLUGIN_MANUFACTURER_CODE K5sn
-    PLUGIN_CODE Vudr
+    PLUGIN_MANUFACTURER_CODE Wstr
+    PLUGIN_CODE Wsrv
     FORMATS AU VST3 Standalone
-    PRODUCT_NAME "VelvetUnderDron"
+    PRODUCT_NAME "WetStringReverb"
 )
 
 # ソースファイル
-target_sources(VelvetUnderDron
+target_sources(WetStringReverb
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
@@ -44,13 +44,13 @@ target_sources(VelvetUnderDron
 )
 
 # インクルードパス
-target_include_directories(VelvetUnderDron
+target_include_directories(WetStringReverb
     PRIVATE
         Source
 )
 
 # プリプロセッサ定義
-target_compile_definitions(VelvetUnderDron
+target_compile_definitions(WetStringReverb
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -59,11 +59,11 @@ target_compile_definitions(VelvetUnderDron
 )
 
 if(MSVC)
-    target_compile_options(VelvetUnderDron PRIVATE /utf-8)
+    target_compile_options(WetStringReverb PRIVATE /utf-8)
 endif()
 
 # リンク
-target_link_libraries(VelvetUnderDron
+target_link_libraries(WetStringReverb
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
@@ -79,11 +79,11 @@ option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)
     enable_testing()
 
-    juce_add_console_app(VelvetUnderDronTests
-        PRODUCT_NAME "VelvetUnderDronTests"
+    juce_add_console_app(WetStringReverbTests
+        PRODUCT_NAME "WetStringReverbTests"
     )
 
-    target_sources(VelvetUnderDronTests
+    target_sources(WetStringReverbTests
         PRIVATE
             Tests/PluginTests.cpp
             Tests/FDNTests.cpp
@@ -106,12 +106,12 @@ if(BUILD_TESTS)
             Source/DSP/ReverbMixer.cpp
     )
 
-    target_include_directories(VelvetUnderDronTests
+    target_include_directories(WetStringReverbTests
         PRIVATE
             Source
     )
 
-    target_compile_definitions(VelvetUnderDronTests
+    target_compile_definitions(WetStringReverbTests
         PRIVATE
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
@@ -120,10 +120,10 @@ if(BUILD_TESTS)
     )
 
     if(MSVC)
-        target_compile_options(VelvetUnderDronTests PRIVATE /utf-8)
+        target_compile_options(WetStringReverbTests PRIVATE /utf-8)
     endif()
 
-    target_link_libraries(VelvetUnderDronTests
+    target_link_libraries(WetStringReverbTests
         PRIVATE
             juce::juce_audio_utils
             juce::juce_dsp
@@ -132,5 +132,5 @@ if(BUILD_TESTS)
             juce::juce_recommended_warning_flags
     )
 
-    add_test(NAME VelvetUnderDronTests COMMAND VelvetUnderDronTests)
+    add_test(NAME WetStringReverbTests COMMAND WetStringReverbTests)
 endif()
