@@ -12,18 +12,21 @@ public:
 
     void runTest() override
     {
-        beginTest ("Silent input with mix=0 produces silence");
+        beginTest ("Silent input produces silent output when dry_wet=0%");
         {
             WetStringReverbProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
-            auto* param = processor.apvts.getParameter (Parameters::MIX);
+            // dry_wet=0% に設定
+            auto* param = processor.apvts.getParameter (Parameters::DRY_WET);
             if (param != nullptr)
                 param->setValueNotifyingHost (param->convertTo0to1 (0.0f));
 
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
+            buffer.clear();
 
+            // 数ブロック処理してテール排出
             for (int b = 0; b < 20; ++b)
             {
                 buffer.clear();
@@ -38,25 +41,33 @@ public:
                     maxSample = std::max (maxSample, std::abs (data[i]));
             }
 
-            expect (maxSample < 0.001f,
-                "Silent input with mix=0 should produce silence, max was "
+            expect (maxSample < 0.0001f,
+                "Silent input with dry_wet=0% should produce silence, max was "
                 + juce::String (maxSample));
         }
 
-        // Sample rate tests
+        // サンプルレートテスト
         const std::array<double, 3> sampleRates = { 44100.0, 48000.0, 96000.0 };
         for (auto sr : sampleRates)
         {
-            beginTest ("Processes without crash at SR=" + juce::String (sr));
-            processAtSampleRate (sr, 512);
+            juce::String testName = "Processes without crash at SR="
+                                  + juce::String (sr);
+            beginTest (testName);
+            {
+                processAtSampleRate (sr, 512);
+            }
         }
 
-        // Buffer size tests
+        // バッファサイズテスト
         const std::array<int, 5> bufferSizes = { 64, 128, 256, 512, 1024 };
         for (auto bs : bufferSizes)
         {
-            beginTest ("Processes without crash at bufferSize=" + juce::String (bs));
-            processAtSampleRate (44100.0, bs);
+            juce::String testName = "Processes without crash at bufferSize="
+                                  + juce::String (bs);
+            beginTest (testName);
+            {
+                processAtSampleRate (44100.0, bs);
+            }
         }
 
         beginTest ("Output is not all zeros with wet signal");
@@ -64,20 +75,23 @@ public:
             WetStringReverbProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
-            auto* param = processor.apvts.getParameter (Parameters::MIX);
+            // dry_wet=100%
+            auto* param = processor.apvts.getParameter (Parameters::DRY_WET);
             if (param != nullptr)
-                param->setValueNotifyingHost (param->convertTo0to1 (1.0f));
+                param->setValueNotifyingHost (param->convertTo0to1 (100.0f));
 
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
 
+            // インパルスを入力
             buffer.clear();
             buffer.getWritePointer (0)[0] = 1.0f;
             buffer.getWritePointer (1)[0] = 1.0f;
             processor.processBlock (buffer, midi);
 
+            // 数ブロック後にまだ出力があるはず（リバーブテール）
             float totalEnergy = 0.0f;
-            for (int b = 0; b < 10; ++b)
+            for (int b = 0; b < 5; ++b)
             {
                 buffer.clear();
                 processor.processBlock (buffer, midi);
@@ -101,6 +115,7 @@ public:
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
 
+            // ランダム入力
             uint32_t rng = 0x13371337u;
             for (int b = 0; b < 50; ++b)
             {
@@ -135,22 +150,35 @@ public:
             WetStringReverbProcessor processor;
             processor.prepareToPlay (44100.0, 512);
 
-            // Set all float params to max
+            // 全パラメータを最大値に設定
             const char* floatParams[] = {
-                Parameters::PRE_DELAY, Parameters::DECAY,
-                Parameters::DAMPING, Parameters::BANDWIDTH,
-                Parameters::SIZE, Parameters::MIX,
-                Parameters::INPUT_DIFF_1, Parameters::INPUT_DIFF_2,
-                Parameters::DECAY_DIFF_1, Parameters::DECAY_DIFF_2,
-                Parameters::MOD_RATE, Parameters::MOD_DEPTH
+                Parameters::DRY_WET, Parameters::PRE_DELAY_MS,
+                Parameters::EARLY_LEVEL_DB, Parameters::LATE_LEVEL_DB,
+                Parameters::ROOM_SIZE, Parameters::STEREO_WIDTH,
+                Parameters::LOW_RT60_S, Parameters::HIGH_RT60_S,
+                Parameters::HF_DAMPING, Parameters::DIFFUSION,
+                Parameters::DECAY_SHAPE, Parameters::SAT_AMOUNT,
+                Parameters::SAT_DRIVE_DB, Parameters::SAT_TONE,
+                Parameters::SAT_ASYMMETRY, Parameters::MOD_DEPTH,
+                Parameters::MOD_RATE_HZ
             };
 
             for (auto* id : floatParams)
             {
                 auto* p = processor.apvts.getParameter (id);
                 if (p != nullptr)
-                    p->setValueNotifyingHost (1.0f);
+                    p->setValueNotifyingHost (1.0f);  // 最大値
             }
+
+            // OS=4x
+            auto* osP = processor.apvts.getParameter (Parameters::OVERSAMPLING);
+            if (osP != nullptr)
+                osP->setValueNotifyingHost (1.0f);
+
+            // Sat Type=Tube
+            auto* stP = processor.apvts.getParameter (Parameters::SAT_TYPE);
+            if (stP != nullptr)
+                stP->setValueNotifyingHost (1.0f);
 
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
@@ -158,6 +186,7 @@ public:
             buffer.getWritePointer (0)[0] = 1.0f;
             buffer.getWritePointer (1)[0] = 1.0f;
 
+            // クラッシュしなければ OK
             for (int b = 0; b < 20; ++b)
             {
                 processor.processBlock (buffer, midi);
@@ -165,6 +194,34 @@ public:
             }
 
             expect (true, "Extreme parameters did not crash");
+        }
+
+        beginTest ("Mono input is handled correctly");
+        {
+            WetStringReverbProcessor processor;
+            processor.prepareToPlay (44100.0, 512);
+
+            // 1ch バッファでも動作するか確認
+            // 注: 実際には JUCE がステレオバスで呼び出すが、
+            // 内部で 1ch 入力のハンドリングをテスト
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            buffer.clear();
+            buffer.getWritePointer (0)[0] = 1.0f;
+            // ch1 はゼロのまま
+
+            processor.processBlock (buffer, midi);
+
+            // NaN/Inf がなければ OK
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                auto* data = buffer.getReadPointer (ch);
+                for (int i = 0; i < 512; ++i)
+                {
+                    expect (!std::isnan (data[i]), "No NaN with mono-like input");
+                    expect (!std::isinf (data[i]), "No Inf with mono-like input");
+                }
+            }
         }
     }
 
@@ -177,17 +234,20 @@ private:
         juce::AudioBuffer<float> buffer (2, blockSize);
         juce::MidiBuffer midi;
 
+        // インパルス入力
         buffer.clear();
         buffer.getWritePointer (0)[0] = 1.0f;
         buffer.getWritePointer (1)[0] = 1.0f;
         processor.processBlock (buffer, midi);
 
+        // 追加ブロック
         for (int b = 0; b < 10; ++b)
         {
             buffer.clear();
             processor.processBlock (buffer, midi);
         }
 
+        // NaN/Inf チェック
         for (int ch = 0; ch < 2; ++ch)
         {
             auto* data = buffer.getReadPointer (ch);
