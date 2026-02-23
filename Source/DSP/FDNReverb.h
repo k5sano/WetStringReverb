@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "DSP/DelayLine.h"
 #include "DSP/FeedbackMatrix.h"
