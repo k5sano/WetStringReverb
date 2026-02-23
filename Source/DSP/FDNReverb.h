@@ -23,18 +23,21 @@ namespace DSP
  *   Feedback loop: delay → atten → matrix → [sat → tone] → write
  *   Output tap: post-attenuation
  *
- * The diffuser ensures immediate high echo density from the
- * first sample, eliminating the metallic "build-up" period
- * typical of classic FDN designs.
+ * Tuning changes (v1.1):
+ *   - Delay lengths extended to ~25–108ms @44.1kHz (Dattorro-scale)
+ *     for warmer, less metallic late reverb.
+ *   - LFO modulation depth increased (maxModSamples 4→16) to
+ *     smear modal resonances more effectively.
  */
 class FDNReverb
 {
 public:
     static constexpr int NUM_CHANNELS = 8;
 
-    // Prime-based delays (@44.1 kHz). Mutually coprime for max mode density.
+    // Extended prime-based delays (@44.1 kHz). Mutually coprime.
+    // Range: ~25ms to ~108ms — similar to Dattorro plate topology.
     static constexpr std::array<int, NUM_CHANNELS> BASE_DELAYS = {
-        443, 557, 661, 769, 883, 1013, 1151, 1277
+        1103, 1399, 1693, 2063, 2521, 3089, 3623, 4783
     };
 
     FDNReverb() = default;
@@ -43,7 +46,8 @@ public:
     {
         sr = sampleRate;
 
-        int maxDelay = static_cast<int> (1277 * 2.0 * (sampleRate / 44100.0)) + 64;
+        // Max delay must accommodate largest BASE_DELAY × roomSize(max=1.0) × sampleRate ratio + modulation headroom
+        int maxDelay = static_cast<int> (4783 * 2.0 * (sampleRate / 44100.0)) + 128;
         for (int i = 0; i < NUM_CHANNELS; ++i)
             delayLines[i].prepare (maxDelay);
 
@@ -119,10 +123,10 @@ public:
         for (auto& tf : toneFilters)
             tf.setTone (satTone);
 
-        // Modulation
+        // Modulation — increased depth range for smoother smearing
         currentModDepth = modDepth * 0.01f;
         currentModRate  = modRate;
-        maxModSamples   = 4.0f;
+        maxModSamples   = 16.0f;   // was 4.0f — now 4× wider for mode-smearing
     }
 
     void processSample (float inputL, float inputR,
@@ -285,7 +289,7 @@ private:
     std::array<float, NUM_CHANNELS> currentDelays {};
     float currentModDepth  = 0.0f;
     float currentModRate   = 0.5f;
-    float maxModSamples    = 4.0f;
+    float maxModSamples    = 16.0f;    // increased from 4.0f
     float currentDiffusion = 0.8f;
     double lfoPhase = 0.0;
 
