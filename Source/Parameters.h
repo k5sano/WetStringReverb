@@ -91,18 +91,19 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         1));
 
     // ---- Reverb character (5) ----
+    // *** RT60 ranges extended for long violin sustain ***
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { LOW_RT60_S, 1 },
         "Low RT60",
-        juce::NormalisableRange<float> (0.2f, 5.0f, 0.01f),
-        1.8f,
+        juce::NormalisableRange<float> (0.2f, 12.0f, 0.01f, 0.4f),  // skew 0.4 = low end detail
+        2.5f,
         juce::AudioParameterFloatAttributes().withLabel ("s")));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { HIGH_RT60_S, 1 },
         "High RT60",
-        juce::NormalisableRange<float> (0.1f, 3.0f, 0.01f),
-        0.9f,
+        juce::NormalisableRange<float> (0.1f, 8.0f, 0.01f, 0.4f),
+        1.4f,
         juce::AudioParameterFloatAttributes().withLabel ("s")));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (

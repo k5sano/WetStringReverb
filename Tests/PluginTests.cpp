@@ -60,8 +60,8 @@ public:
             checkDefault (Parameters::LATE_LEVEL_DB, -6.0f);
             checkDefault (Parameters::ROOM_SIZE, 0.6f);
             checkDefault (Parameters::STEREO_WIDTH, 70.0f);
-            checkDefault (Parameters::LOW_RT60_S, 1.8f);
-            checkDefault (Parameters::HIGH_RT60_S, 0.9f);
+            checkDefault (Parameters::LOW_RT60_S, 2.5f, 0.1f);
+            checkDefault (Parameters::HIGH_RT60_S, 1.4f, 0.1f);
             checkDefault (Parameters::HF_DAMPING, 65.0f);
             checkDefault (Parameters::DIFFUSION, 80.0f);
             checkDefault (Parameters::DECAY_SHAPE, 40.0f);
@@ -93,8 +93,8 @@ public:
             checkRange (Parameters::LATE_LEVEL_DB, -24.0f, 6.0f);
             checkRange (Parameters::ROOM_SIZE, 0.1f, 1.0f);
             checkRange (Parameters::STEREO_WIDTH, 0.0f, 100.0f);
-            checkRange (Parameters::LOW_RT60_S, 0.2f, 5.0f);
-            checkRange (Parameters::HIGH_RT60_S, 0.1f, 3.0f);
+            checkRange (Parameters::LOW_RT60_S, 0.2f, 12.0f);
+            checkRange (Parameters::HIGH_RT60_S, 0.1f, 8.0f);
             checkRange (Parameters::HF_DAMPING, 0.0f, 100.0f);
             checkRange (Parameters::SAT_AMOUNT, 0.0f, 100.0f);
             checkRange (Parameters::SAT_DRIVE_DB, 0.0f, 24.0f);

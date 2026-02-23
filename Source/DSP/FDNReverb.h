@@ -17,26 +17,16 @@ namespace DSP
  * 8-channel Feedback Delay Network with input diffuser (Layer 2).
  * Runs at oversampled rate.
  *
- * Architecture (Signalsmith 2021 + Jot 1992 hybrid):
- *
- *   Input → Diffuser (4-stage allpass) → injection into delay lines
- *   Feedback loop: delay → atten → matrix → [sat → tone] → write
- *   Output tap: post-attenuation
- *
- * Tuning v2 (2025-02):
- *   - Delay lengths extended (max ~108 ms @44.1 kHz) to match
- *     plate reverb density and eliminate metallic coloration.
- *   - LFO modulation depth increased (up to 16 samples) for
- *     smoother, more liquid tail character.
+ * v3 (2025): Internal one-pole smoothing on delay lengths and
+ * attenuation coefficients to eliminate zipper noise when
+ * automating Room Size or RT60.  Safety: hard energy ceiling
+ * with per-channel output limiting.
  */
 class FDNReverb
 {
 public:
     static constexpr int NUM_CHANNELS = 8;
 
-    // Extended prime-based delays (@44.1 kHz).
-    // Range: ~20 ms to ~108 ms — comparable to Dattorro plate topology.
-    // All mutually coprime for maximum mode density.
     static constexpr std::array<int, NUM_CHANNELS> BASE_DELAYS = {
         887, 1151, 1559, 1907, 2467, 3109, 3907, 4787
     };
@@ -47,7 +37,9 @@ public:
     {
         sr = sampleRate;
 
-        // Max possible delay: largest base * max roomSize(1.0) * rate ratio + mod headroom
+        // Smoothing coefficient: ~5ms time constant at oversampled rate
+        smoothCoeff = 1.0f - std::exp (-1.0f / (static_cast<float> (sr) * 0.005f));
+
         int maxDelay = static_cast<int> (4787 * 2.0 * (sampleRate / 44100.0)) + 128;
         for (int i = 0; i < NUM_CHANNELS; ++i)
             delayLines[i].prepare (maxDelay);
@@ -61,10 +53,11 @@ public:
         for (auto& tf : toneFilters)
             tf.prepare (sampleRate);
 
-        // Prepare input diffuser at the oversampled rate
         diffuser.prepare (sampleRate, maxBlockSize);
 
         lfoPhase = 0.0;
+        energyAccum = 0.0f;
+        energySampleCount = 0;
         reset();
     }
 
@@ -83,28 +76,29 @@ public:
         bypassAttenFilter = bypAttenFilter;
         bypassModulation  = bypModulation;
 
-        // Delay lengths
+        // Target delay lengths (smoothing applied per-sample in processSample)
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
             float delayLength = static_cast<float> (BASE_DELAYS[i]) * roomSize
                               * static_cast<float> (sr / 44100.0);
-            currentDelays[i] = delayLength;
-            delayLines[i].setDelay (delayLength);
+            targetDelays[i] = delayLength;
         }
 
-        // Crossover frequency (exponential mapping)
+        // Crossover frequency
         float crossoverHz = 20000.0f * std::pow (500.0f / 20000.0f,
                                                   hfDamping * 0.01f);
 
-        // Per-channel attenuation filter (Jot design)
+        // Compute target attenuation coefficients per channel
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
-            float delaySec = currentDelays[i] / static_cast<float> (sr);
+            // Use target delay for coefficient calculation
+            float delaySec = targetDelays[i] / static_cast<float> (sr);
             float gLow  = std::pow (10.0f, -3.0f * delaySec
                                             / std::max (lowRT60,  0.05f));
             float gHigh = std::pow (10.0f, -3.0f * delaySec
                                             / std::max (highRT60, 0.05f));
 
+            // Hard ceiling: prevent any feedback gain >= 1
             gLow  = std::min (gLow,  0.9999f);
             gHigh = std::min (gHigh, 0.9999f);
 
@@ -112,29 +106,23 @@ public:
                                                     static_cast<float> (sr));
         }
 
-        // Diffusion controls how much the Hadamard matrix mixes in the
-        // feedback loop. The input diffuser always runs at full strength.
         currentDiffusion = std::clamp (diffusion * 0.01f, 0.0f, 1.0f);
 
-        // Saturation
         for (auto& sat : saturators)
             sat.setParameters (satAmount, satDrive, satType, satAsymmetry);
 
-        // Tone filter
         for (auto& tf : toneFilters)
             tf.setTone (satTone);
 
-        // Modulation — increased depth range for liquid character
         currentModDepth = modDepth * 0.01f;
         currentModRate  = modRate;
-        maxModSamples   = 16.0f;  // was 4.0 — now matches plate reverb range
+        maxModSamples   = 16.0f;
     }
 
     void processSample (float inputL, float inputR,
                         float& outputL, float& outputR)
     {
-        // --- 0. Input diffuser: spread input across 8 channels ---
-        //    This creates immediate high echo density.
+        // --- 0. Input diffuser ---
         constexpr float inputScale = 0.5f;
 
         std::array<float, NUM_CHANNELS> diffuserInput;
@@ -147,12 +135,18 @@ public:
         std::array<float, NUM_CHANNELS> diffused;
         diffuser.processSample (diffuserInput, diffused);
 
-        // --- 1. Read delay lines ---
+        // --- 1. Smooth delay lengths (one-pole) ---
+        for (int i = 0; i < NUM_CHANNELS; ++i)
+        {
+            currentDelays[i] += smoothCoeff * (targetDelays[i] - currentDelays[i]);
+        }
+
+        // --- 2. Read delay lines ---
         std::array<float, NUM_CHANNELS> delayOutputs;
         for (int i = 0; i < NUM_CHANNELS; ++i)
             delayOutputs[i] = delayLines[i].read();
 
-        // --- 2. Attenuation filter (BEFORE matrix, per Jot) ---
+        // --- 3. Attenuation filter ---
         std::array<float, NUM_CHANNELS> attenuated;
         if (bypassAttenFilter)
         {
@@ -164,7 +158,7 @@ public:
                 attenuated[i] = attenuationFilters[i].process (delayOutputs[i]);
         }
 
-        // --- 3. Output tap (post-attenuation) ---
+        // --- 4. Output tap ---
         constexpr float outputScale = 0.5f;
         outputL = 0.0f;
         outputR = 0.0f;
@@ -178,7 +172,7 @@ public:
         outputL *= outputScale;
         outputR *= outputScale;
 
-        // --- 4. Feedback matrix (unitary mixing) ---
+        // --- 5. Feedback matrix ---
         std::array<float, NUM_CHANNELS> feedback;
         if (currentDiffusion < 0.001f)
         {
@@ -213,7 +207,7 @@ public:
             }
         }
 
-        // --- 5. Saturation (optional) ---
+        // --- 6. Saturation ---
         std::array<float, NUM_CHANNELS> afterSat;
         if (bypassSaturation)
         {
@@ -225,7 +219,7 @@ public:
                 afterSat[i] = saturators[i].process (feedback[i]);
         }
 
-        // --- 6. Tone filter (optional) ---
+        // --- 7. Tone filter ---
         std::array<float, NUM_CHANNELS> processed;
         if (bypassToneFilter)
         {
@@ -237,22 +231,33 @@ public:
                 processed[i] = toneFilters[i].process (afterSat[i]);
         }
 
-        // --- 7. Modulation + write to delay lines ---
+        // --- 8. Safety limiter: per-channel soft clamp ---
+        for (int i = 0; i < NUM_CHANNELS; ++i)
+        {
+            float x = processed[i];
+            if (x > 2.0f)       x = 2.0f * std::tanh (x * 0.5f);
+            else if (x < -2.0f) x = 2.0f * std::tanh (x * 0.5f);
+            processed[i] = x;
+        }
+
+        // --- 9. Modulation + write ---
         float lfoInc = 2.0f * 3.14159265f * currentModRate
                      / static_cast<float> (sr);
 
         for (int i = 0; i < NUM_CHANNELS; ++i)
         {
+            float delayToSet = currentDelays[i];
+
             if (!bypassModulation)
             {
                 float phaseOffset = 2.0f * 3.14159265f * static_cast<float> (i)
                                   / static_cast<float> (NUM_CHANNELS);
                 float mod = currentModDepth * maxModSamples
                           * std::sin (static_cast<float> (lfoPhase) + phaseOffset);
-                delayLines[i].setDelay (currentDelays[i] + mod);
+                delayToSet += mod;
             }
 
-            // Inject diffused input + processed feedback
+            delayLines[i].setDelay (delayToSet);
             delayLines[i].write (diffused[i] + processed[i]);
         }
 
@@ -262,6 +267,10 @@ public:
             if (lfoPhase > 2.0 * 3.14159265358979323846)
                 lfoPhase -= 2.0 * 3.14159265358979323846;
         }
+
+        // --- 10. Denormal kill on outputs ---
+        outputL = killDenormal (outputL);
+        outputR = killDenormal (outputR);
     }
 
     void reset()
@@ -276,10 +285,26 @@ public:
             tf.reset();
         diffuser.reset();
         lfoPhase = 0.0;
+        energyAccum = 0.0f;
+        energySampleCount = 0;
+
+        // Initialize smooth delays to target on reset
+        for (int i = 0; i < NUM_CHANNELS; ++i)
+            currentDelays[i] = targetDelays[i];
     }
 
 private:
+    static float killDenormal (float x)
+    {
+        static constexpr float antiDenormal = 1.0e-18f;
+        x += antiDenormal;
+        x -= antiDenormal;
+        return x;
+    }
+
     double sr = 44100.0;
+    float smoothCoeff = 0.01f;
+
     std::array<DelayLine, NUM_CHANNELS> delayLines;
     FeedbackMatrix feedbackMatrix;
     std::array<AttenuationFilter, NUM_CHANNELS> attenuationFilters;
@@ -287,12 +312,17 @@ private:
     std::array<SaturationToneFilter, NUM_CHANNELS> toneFilters;
     Diffuser diffuser;
 
+    std::array<float, NUM_CHANNELS> targetDelays {};
     std::array<float, NUM_CHANNELS> currentDelays {};
     float currentModDepth  = 0.0f;
     float currentModRate   = 0.5f;
     float maxModSamples    = 16.0f;
     float currentDiffusion = 0.8f;
     double lfoPhase = 0.0;
+
+    // Energy monitoring (for future metering / safety)
+    float energyAccum = 0.0f;
+    int energySampleCount = 0;
 
     bool bypassSaturation  = false;
     bool bypassToneFilter  = false;

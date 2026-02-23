@@ -8,13 +8,8 @@ namespace DSP
 
 /**
  * First-order shelving filter for frequency-dependent attenuation.
- * Placed INSIDE the FDN feedback loop, BEFORE the feedback matrix
- * (per Jot 1992 / Schlecht 2018).
- *
- * Design ensures:
- *   H(z=1)  = gainLow   (DC gain)
- *   H(z=-1) = gainHigh  (Nyquist gain)
- *   |H(e^jw)| <= max(gainLow, gainHigh) for all w
+ * v3: Additional safety for extended RT60 ranges (up to 12s).
+ *     Coefficient smoothing via one-pole to avoid clicks.
  */
 class AttenuationFilter
 {
@@ -30,9 +25,9 @@ public:
 
         if (std::abs (gainLow - gainHigh) < 1.0e-6f)
         {
-            b0 = gainLow;
-            b1 = 0.0f;
-            a1Coeff = 0.0f;
+            targetB0 = gainLow;
+            targetB1 = 0.0f;
+            targetA1 = 0.0f;
             return;
         }
 
@@ -42,18 +37,26 @@ public:
         float t  = std::tan (wc);
         float ap = (t - 1.0f) / (t + 1.0f);
 
-        // H(1)  = (b0+b1)/(1+a1) = gainLow
-        // H(-1) = (b0-b1)/(1-a1) = gainHigh
-        b0 = 0.5f * (gainLow * (1.0f + ap) + gainHigh * (1.0f - ap));
-        b1 = 0.5f * (gainLow * (1.0f + ap) - gainHigh * (1.0f - ap));
-        a1Coeff = ap;
+        targetB0 = 0.5f * (gainLow * (1.0f + ap) + gainHigh * (1.0f - ap));
+        targetB1 = 0.5f * (gainLow * (1.0f + ap) - gainHigh * (1.0f - ap));
+        targetA1 = ap;
     }
 
     float process (float input)
     {
+        // One-pole smoothing on coefficients (~2ms at 44.1kHz)
+        constexpr float smooth = 0.005f;
+        b0 += smooth * (targetB0 - b0);
+        b1 += smooth * (targetB1 - b1);
+        a1Coeff += smooth * (targetA1 - a1Coeff);
+
         float output = b0 * input + b1 * z1 - a1Coeff * zOut1;
         z1 = input;
         zOut1 = output;
+
+        // Denormal protection on filter state
+        if (std::abs (zOut1) < 1.0e-18f) zOut1 = 0.0f;
+
         return output;
     }
 
@@ -61,12 +64,24 @@ public:
     {
         z1 = 0.0f;
         zOut1 = 0.0f;
+        // Snap coefficients to target immediately
+        b0 = targetB0;
+        b1 = targetB1;
+        a1Coeff = targetA1;
     }
 
 private:
+    // Current (smoothed) coefficients
     float b0 = 1.0f;
     float b1 = 0.0f;
     float a1Coeff = 0.0f;
+
+    // Target coefficients
+    float targetB0 = 1.0f;
+    float targetB1 = 0.0f;
+    float targetA1 = 0.0f;
+
+    // Filter state
     float z1 = 0.0f;
     float zOut1 = 0.0f;
 };

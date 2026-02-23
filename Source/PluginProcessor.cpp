@@ -39,10 +39,43 @@ WetStringReverbProcessor::WetStringReverbProcessor()
     bypassModulationParam = apvts.getRawParameterValue (Parameters::BYPASS_MODULATION);
 }
 
+void WetStringReverbProcessor::initAllSmoothedValues (double sampleRate)
+{
+    auto init = [&] (juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>& sv,
+                     float startVal)
+    {
+        sv.reset (sampleRate, kSmoothTimeSeconds);
+        sv.setCurrentAndTargetValue (startVal);
+    };
+
+    init (smoothDryWet,       dryWetParam->load());
+    init (smoothPreDelay,     preDelayParam->load());
+    init (smoothEarlyLevel,   earlyLevelParam->load());
+    init (smoothLateLevel,    lateLevelParam->load());
+    init (smoothRoomSize,     roomSizeParam->load());
+    init (smoothStereoWidth,  stereoWidthParam->load());
+
+    init (smoothLowRT60,      lowRT60Param->load());
+    init (smoothHighRT60,     highRT60Param->load());
+    init (smoothHfDamping,    hfDampingParam->load());
+    init (smoothDiffusion,    diffusionParam->load());
+    init (smoothDecayShape,   decayShapeParam->load());
+
+    init (smoothSatAmount,    satAmountParam->load());
+    init (smoothSatDrive,     satDriveParam->load());
+    init (smoothSatTone,      satToneParam->load());
+    init (smoothSatAsymmetry, satAsymmetryParam->load());
+
+    init (smoothModDepth,     modDepthParam->load());
+    init (smoothModRate,      modRateParam->load());
+}
+
 void WetStringReverbProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
+
+    initAllSmoothedValues (sampleRate);
 
     juce::dsp::ProcessSpec spec { sampleRate,
                                    static_cast<juce::uint32> (samplesPerBlock),
@@ -88,39 +121,27 @@ void WetStringReverbProcessor::releaseResources()
 
 void WetStringReverbProcessor::updateParameters()
 {
-    float roomSize     = roomSizeParam->load();
-    float lowRT60      = lowRT60Param->load();
-    float highRT60     = highRT60Param->load();
-    float hfDamping    = hfDampingParam->load();
-    float diffusion    = diffusionParam->load();
-    float modDepth     = modDepthParam->load();
-    float modRate      = modRateParam->load();
-    float satAmount    = satAmountParam->load();
-    float satDrive     = satDriveParam->load();
-    int   satType      = static_cast<int> (satTypeParam->load());
-    float satTone      = satToneParam->load();
-    float satAsymmetry = satAsymmetryParam->load();
+    // Set smoothing targets from atomic parameter values
+    smoothDryWet      .setTargetValue (dryWetParam->load());
+    smoothPreDelay    .setTargetValue (preDelayParam->load());
+    smoothEarlyLevel  .setTargetValue (earlyLevelParam->load());
+    smoothLateLevel   .setTargetValue (lateLevelParam->load());
+    smoothRoomSize    .setTargetValue (roomSizeParam->load());
+    smoothStereoWidth .setTargetValue (stereoWidthParam->load());
 
-    bool bSat   = bypassSaturationParam->load()  >= 0.5f;
-    bool bTone  = bypassToneFilterParam->load()   >= 0.5f;
-    bool bAtten = bypassAttenFilterParam->load()  >= 0.5f;
-    bool bMod   = bypassModulationParam->load()   >= 0.5f;
+    smoothLowRT60     .setTargetValue (lowRT60Param->load());
+    smoothHighRT60    .setTargetValue (highRT60Param->load());
+    smoothHfDamping   .setTargetValue (hfDampingParam->load());
+    smoothDiffusion   .setTargetValue (diffusionParam->load());
+    smoothDecayShape  .setTargetValue (decayShapeParam->load());
 
-    fdnReverb.setParameters (roomSize, lowRT60, highRT60, hfDamping, diffusion,
-                             modDepth, modRate,
-                             satAmount, satDrive, satType, satTone, satAsymmetry,
-                             bSat, bTone, bAtten, bMod);
+    smoothSatAmount   .setTargetValue (satAmountParam->load());
+    smoothSatDrive    .setTargetValue (satDriveParam->load());
+    smoothSatTone     .setTargetValue (satToneParam->load());
+    smoothSatAsymmetry.setTargetValue (satAsymmetryParam->load());
 
-    float decayShape = decayShapeParam->load();
-    dvnTail[0].setParameters (decayShape, lowRT60);
-    dvnTail[1].setParameters (decayShape, lowRT60);
-
-    // Gain applied ONLY in ReverbMixer — not here
-    float dryWet      = dryWetParam->load();
-    float earlyLevel  = earlyLevelParam->load();
-    float lateLevel   = lateLevelParam->load();
-    float stereoWidth = stereoWidthParam->load();
-    reverbMixer.setParameters (dryWet, earlyLevel, lateLevel, stereoWidth);
+    smoothModDepth    .setTargetValue (modDepthParam->load());
+    smoothModRate     .setTargetValue (modRateParam->load());
 }
 
 void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
@@ -147,32 +168,37 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         suspendProcessing (false);
     }
 
+    // Push new targets — smoothed values advance per-sample below
     updateParameters();
 
     bool bypassEarly = bypassEarlyParam->load() >= 0.5f;
     bool bypassFDN   = bypassFDNParam->load()   >= 0.5f;
     bool bypassDVN   = bypassDVNParam->load()    >= 0.5f;
+    bool bSat   = bypassSaturationParam->load()  >= 0.5f;
+    bool bTone  = bypassToneFilterParam->load()   >= 0.5f;
+    bool bAtten = bypassAttenFilterParam->load()  >= 0.5f;
+    bool bMod   = bypassModulationParam->load()   >= 0.5f;
 
     // Dry copy
     for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
         dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
-    // Pre-Delay
-    float preDelayMs = preDelayParam->load();
-    float preDelaySamples = preDelayMs * 0.001f * static_cast<float> (currentSampleRate);
-    for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
+    // ---- Pre-Delay (smoothed per-sample) ----
+    for (int i = 0; i < numSamples; ++i)
     {
-        preDelayLine[ch].setDelay (preDelaySamples);
-        auto* channelData = buffer.getWritePointer (ch);
-        for (int i = 0; i < numSamples; ++i)
+        float preDelaySamples = smoothPreDelay.getNextValue()
+                              * 0.001f * static_cast<float> (currentSampleRate);
+
+        for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
         {
-            float in = channelData[i];
+            preDelayLine[ch].setDelay (preDelaySamples);
+            float in = buffer.getSample (ch, i);
             preDelayLine[ch].pushSample (0, in);
-            channelData[i] = preDelayLine[ch].popSample (0);
+            buffer.setSample (ch, i, preDelayLine[ch].popSample (0));
         }
     }
 
-    // Early Reflections (gain=1.0, actual gain in ReverbMixer)
+    // ---- Early Reflections ----
     if (bypassEarly)
     {
         earlyBuffer.clear (0, 0, numSamples);
@@ -187,7 +213,7 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                            numSamples, 1.0f);
     }
 
-    // FDN
+    // ---- FDN (smoothed parameters fed per sub-block) ----
     if (bypassFDN)
     {
         fdnInputBuffer.clear (0, 0, numSamples);
@@ -198,6 +224,25 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
             fdnInputBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+
+        // Advance smoothed values and snapshot for FDN
+        float roomSize   = smoothRoomSize   .skip (numSamples);
+        float lowRT60    = smoothLowRT60    .skip (numSamples);
+        float highRT60   = smoothHighRT60   .skip (numSamples);
+        float hfDamping  = smoothHfDamping  .skip (numSamples);
+        float diffusion  = smoothDiffusion  .skip (numSamples);
+        float modDepth   = smoothModDepth   .skip (numSamples);
+        float modRate    = smoothModRate    .skip (numSamples);
+        float satAmount  = smoothSatAmount  .skip (numSamples);
+        float satDrive   = smoothSatDrive   .skip (numSamples);
+        float satTone    = smoothSatTone    .skip (numSamples);
+        float satAsym    = smoothSatAsymmetry.skip (numSamples);
+        int   satType    = static_cast<int> (satTypeParam->load());
+
+        fdnReverb.setParameters (roomSize, lowRT60, highRT60, hfDamping, diffusion,
+                                 modDepth, modRate,
+                                 satAmount, satDrive, satType, satTone, satAsym,
+                                 bSat, bTone, bAtten, bMod);
 
         juce::dsp::AudioBlock<float> fdnBlock (fdnInputBuffer);
         auto oversampledBlock = oversamplingManager.processSamplesUp (fdnBlock);
@@ -217,7 +262,7 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         oversamplingManager.processSamplesDown (fdnBlock);
     }
 
-    // DVN Tail (gain=1.0, actual gain in ReverbMixer)
+    // ---- DVN Tail ----
     if (bypassDVN)
     {
         dvnBuffer.clear (0, 0, numSamples);
@@ -226,18 +271,30 @@ void WetStringReverbProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
     else
     {
+        float decayShape = smoothDecayShape.getCurrentValue();
+        float dvnRT60    = smoothLowRT60.getCurrentValue();
+        dvnTail[0].setParameters (decayShape, dvnRT60);
+        dvnTail[1].setParameters (decayShape, dvnRT60);
+
         for (int ch = 0; ch < 2 && ch < buffer.getNumChannels(); ++ch)
             dvnTail[ch].process (fdnInputBuffer.getReadPointer (ch),
                                   dvnBuffer.getWritePointer (ch),
                                   numSamples, 1.0f);
     }
 
-    // Mixing
+    // ---- Mixing (per-sample smoothed dry/wet, early/late levels, width) ----
     auto* outL = buffer.getWritePointer (0);
     auto* outR = buffer.getNumChannels() >= 2 ? buffer.getWritePointer (1) : outL;
 
     for (int i = 0; i < numSamples; ++i)
     {
+        float dw = smoothDryWet     .getNextValue();
+        float el = smoothEarlyLevel .getNextValue();
+        float ll = smoothLateLevel  .getNextValue();
+        float sw = smoothStereoWidth.getNextValue();
+
+        reverbMixer.setParameters (dw, el, ll, sw);
+
         float mixL, mixR;
         reverbMixer.process (
             dryBuffer.getReadPointer (0)[i],

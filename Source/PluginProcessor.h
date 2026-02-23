@@ -27,7 +27,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 5.0; }
+    double getTailLengthSeconds() const override { return 12.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -74,6 +74,30 @@ private:
     std::atomic<float>* bypassAttenFilterParam = nullptr;
     std::atomic<float>* bypassModulationParam = nullptr;
 
+    // ---- Smoothed parameters (50ms ramp) ----
+    static constexpr double kSmoothTimeSeconds = 0.05;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothDryWet;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothPreDelay;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothEarlyLevel;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothLateLevel;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothRoomSize;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothStereoWidth;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothLowRT60;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothHighRT60;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothHfDamping;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothDiffusion;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothDecayShape;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothSatAmount;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothSatDrive;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothSatTone;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothSatAsymmetry;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothModDepth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothModRate;
+
     // DSP
     DSP::EarlyReflections earlyReflections[2];
     DSP::FDNReverb fdnReverb;
@@ -97,6 +121,7 @@ private:
 
     void updateParameters();
     void initializeOversampling (int factor);
+    void initAllSmoothedValues (double sampleRate);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WetStringReverbProcessor)
 };
